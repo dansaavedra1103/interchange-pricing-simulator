@@ -1,0 +1,119 @@
+# Parámetros globales del Interchange Pricing Simulator (Feature 0: vertical slice).
+# Datos 100% sintéticos. Cada valor de negocio está documentado en docs/assumptions.md,
+# marcado como [spec/literatura] o [supuesto propio]. Tasas en fracción decimal (0.016 = 1,6%).
+
+seed: 20260910
+
+dates:
+  start: 2025-01-01
+  end: 2025-12-31
+
+sizes:
+  n_merchants: 2000
+  n_cardholders: 20000
+  n_transactions: 100000
+
+output:
+  raw_dir: data/raw
+
+products: [debit, credit_standard, credit_premium]
+
+distributions:
+  # Peso de volumen del comercio ~ LogNormal(0, sigma): pocos comercios grandes concentran volumen.
+  merchant_size_sigma: 1.0
+  # Peso de actividad del tarjetahabiente ~ LogNormal(0, sigma).
+  cardholder_activity_sigma: 0.7
+  # Piso del monto por transacción (COP).
+  min_amount_cop: 1000
+
+# Emisores ficticios. bank_group identifica al grupo financiero: si coincide con el del
+# adquirente del comercio, la transacción es on-us. Las fintech no tienen negocio adquirente.
+issuers:
+  - {issuer_id: ISS_BANK_A, issuer_type: bank, bank_group: BANK_A, market_share: 0.32}
+  - {issuer_id: ISS_BANK_B, issuer_type: bank, bank_group: BANK_B, market_share: 0.24}
+  - {issuer_id: ISS_BANK_C, issuer_type: bank, bank_group: BANK_C, market_share: 0.16}
+  - {issuer_id: ISS_BANK_D, issuer_type: bank, bank_group: BANK_D, market_share: 0.10}
+  - {issuer_id: ISS_FINTECH_E, issuer_type: fintech, bank_group: null, market_share: 0.12}
+  - {issuer_id: ISS_FINTECH_F, issuer_type: fintech, bank_group: null, market_share: 0.06}
+
+# Adquirentes ficticios: dos bancos (que también emiten) y dos agregadores independientes.
+acquirers:
+  - {acquirer_id: ACQ_BANK_A, acquirer_type: bank, bank_group: BANK_A, market_share: 0.30}
+  - {acquirer_id: ACQ_BANK_B, acquirer_type: bank, bank_group: BANK_B, market_share: 0.25}
+  - {acquirer_id: ACQ_AGG_X, acquirer_type: aggregator, bank_group: null, market_share: 0.25}
+  - {acquirer_id: ACQ_AGG_Y, acquirer_type: aggregator, bank_group: null, market_share: 0.20}
+
+# P(producto | tipo de emisor): los bancos emiten más premium, las fintech más débito.
+product_mix:
+  bank: {debit: 0.55, credit_standard: 0.30, credit_premium: 0.15}
+  fintech: {debit: 0.80, credit_standard: 0.17, credit_premium: 0.03}
+
+# merchant_share: fracción de comercios en el MCC. El monto de cada transacción es
+# log-normal con mediana median_ticket_cop y dispersión (en log) ticket_sigma.
+mccs:
+  - {mcc: "5411", name: supermarkets, merchant_share: 0.20, median_ticket_cop: 60000, ticket_sigma: 0.9}
+  - {mcc: "5541", name: gas_stations, merchant_share: 0.08, median_ticket_cop: 70000, ticket_sigma: 0.6}
+  - {mcc: "4900", name: utilities, merchant_share: 0.04, median_ticket_cop: 120000, ticket_sigma: 0.7}
+  - {mcc: "5812", name: restaurants, merchant_share: 0.16, median_ticket_cop: 55000, ticket_sigma: 0.8}
+  - {mcc: "5814", name: fast_food, merchant_share: 0.10, median_ticket_cop: 25000, ticket_sigma: 0.6}
+  - {mcc: "5912", name: drugstores, merchant_share: 0.10, median_ticket_cop: 40000, ticket_sigma: 0.8}
+  - {mcc: "5651", name: clothing, merchant_share: 0.12, median_ticket_cop: 150000, ticket_sigma: 0.9}
+  - {mcc: "5732", name: electronics, merchant_share: 0.06, median_ticket_cop: 600000, ticket_sigma: 1.0}
+  - {mcc: "5311", name: department_stores, merchant_share: 0.10, median_ticket_cop: 180000, ticket_sigma: 1.0}
+  - {mcc: "4511", name: airlines, merchant_share: 0.04, median_ticket_cop: 450000, ticket_sigma: 0.7}
+
+pricing:
+  # Scheme fee que la red cobra al adquirente, pagado desde el MDR (ejemplo §1.2 de la spec).
+  scheme_fee: {rate: 0.0013, fixed_cop: 0}
+
+  # Tarifa blended (plana) al comercio por MCC: paga lo mismo sin importar qué tarjeta le
+  # presentan. Calibrada para que el margen promedio del adquirente quede en 0,2-0,7% (spec §1.6).
+  blended_mdr_rate:
+    "5411": 0.015
+    "5541": 0.014
+    "4900": 0.013
+    "5812": 0.020
+    "5814": 0.018
+    "5912": 0.017
+    "5651": 0.022
+    "5732": 0.021
+    "5311": 0.021
+    "4511": 0.023
+
+  # Tabla de interchange producto × MCC (grilla completa). rate en fracción decimal,
+  # fixed_cop en COP. Categorías reducidas (supermercados, gasolina, servicios públicos)
+  # con débito de 0,3-0,4%; crédito 1,0-2,0%; premium hasta 2,5% (spec §2.3).
+  interchange_table:
+    debit:
+      "5411": {rate: 0.0040, fixed_cop: 0}
+      "5541": {rate: 0.0030, fixed_cop: 0}
+      "4900": {rate: 0.0030, fixed_cop: 0}
+      "5812": {rate: 0.0090, fixed_cop: 0}
+      "5814": {rate: 0.0080, fixed_cop: 0}
+      "5912": {rate: 0.0060, fixed_cop: 0}
+      "5651": {rate: 0.0100, fixed_cop: 0}
+      "5732": {rate: 0.0100, fixed_cop: 0}
+      "5311": {rate: 0.0100, fixed_cop: 0}
+      "4511": {rate: 0.0110, fixed_cop: 0}
+    credit_standard:
+      "5411": {rate: 0.0120, fixed_cop: 0}
+      "5541": {rate: 0.0120, fixed_cop: 0}
+      "4900": {rate: 0.0100, fixed_cop: 0}
+      "5812": {rate: 0.0170, fixed_cop: 0}
+      "5814": {rate: 0.0150, fixed_cop: 0}
+      "5912": {rate: 0.0150, fixed_cop: 0}
+      "5651": {rate: 0.0190, fixed_cop: 0}
+      "5732": {rate: 0.0180, fixed_cop: 0}
+      "5311": {rate: 0.0180, fixed_cop: 0}
+      "4511": {rate: 0.0200, fixed_cop: 0}
+    credit_premium:
+      "5411": {rate: 0.0160, fixed_cop: 0}
+      "5541": {rate: 0.0150, fixed_cop: 0}
+      "4900": {rate: 0.0130, fixed_cop: 0}
+      "5812": {rate: 0.0220, fixed_cop: 0}
+      "5814": {rate: 0.0200, fixed_cop: 0}
+      "5912": {rate: 0.0190, fixed_cop: 0}
+      "5651": {rate: 0.0230, fixed_cop: 0}
+      "5732": {rate: 0.0220, fixed_cop: 0}
+      "5311": {rate: 0.0220, fixed_cop: 0}
+      "4511": {rate: 0.0250, fixed_cop: 0}
