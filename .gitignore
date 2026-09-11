@@ -10,3 +10,4 @@ data/artifacts/*
 dbt/target/
 dbt/logs/
 .ipynb_checkpoints/
+dbt/.user.yml

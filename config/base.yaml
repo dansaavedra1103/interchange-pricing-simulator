@@ -18,8 +18,16 @@ sizes:
   n_foreign_merchants: 600
   n_transactions: 6000000
 
+# Muestra con los mismos parámetros y 30 veces menos compras: tests, CI y `generate --sample`.
+sample_sizes:
+  n_cardholders: 6000
+  n_merchants: 1500
+  n_foreign_merchants: 60
+  n_transactions: 200000
+
 output:
   raw_dir: data/raw
+  warehouse_path: data/warehouse/ips.duckdb
 
 includes:
   mcc_groups: config/mcc_groups.yaml

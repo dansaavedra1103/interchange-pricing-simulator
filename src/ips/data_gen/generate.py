@@ -64,6 +64,12 @@ def mcc_dimension(cfg: ProjectConfig) -> pl.DataFrame:
     return pl.DataFrame(rows).cast({"mcc": enums["mcc"], "mcc_group": enums["mcc_group"]})
 
 
+def network_fees_dimension(cfg: ProjectConfig) -> pl.DataFrame:
+    """The fee the network charges out of the MDR, one row (read by the dbt pipeline)."""
+    fee = cfg.network.scheme_fee
+    return pl.DataFrame({"scheme_fee_rate": [fee.rate], "scheme_fee_fixed_cop": [fee.fixed_cop]})
+
+
 def generate(cfg: ProjectConfig) -> GeneratedData:
     """Generate every table reproducibly from ``cfg.seed``."""
     # One independent RNG stream per stage: resizing one stage leaves the others untouched.
@@ -108,6 +114,7 @@ def generate(cfg: ProjectConfig) -> GeneratedData:
         "transactions": transactions.select(list(schema)).cast(dict(schema)),
         "mccs": mcc_dimension(cfg),
         "interchange_table": build_interchange_table(cfg),
+        "network_fees": network_fees_dimension(cfg),
     }
     latent = {
         "cardholders_latent": card_latent.to_frame(cfg),
@@ -165,10 +172,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument(
         "--n-transactions", type=int, default=None, help="Override sizes.n_transactions."
     )
+    parser.add_argument(
+        "--sample", action="store_true", help="Use sample_sizes from the config (tests, CI)."
+    )
     args = parser.parse_args(argv)
     logger = get_logger("ips.data_gen.generate")
 
     cfg = load_config(args.config)
+    if args.sample:
+        cfg = cfg.model_copy(update={"sizes": cfg.sample_sizes})
     if args.n_transactions is not None:
         sizes = cfg.sizes.model_copy(update={"n_transactions": args.n_transactions})
         cfg = cfg.model_copy(update={"sizes": sizes})

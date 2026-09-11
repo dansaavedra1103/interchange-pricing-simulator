@@ -1,0 +1,10 @@
+# The warehouse path comes from the environment: `python -m ips.tasks dbt` sets it from
+# config/base.yaml (output.warehouse_path). To target Snowflake, add an output here and
+# point the sources at the new location; the models do not change.
+ips:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('IPS_WAREHOUSE') }}"
+      threads: 4

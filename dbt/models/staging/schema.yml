@@ -1,0 +1,72 @@
+version: 2
+
+models:
+  - name: stg_transactions
+    description: Card purchases as generated, typed and renamed. No fees yet.
+    columns:
+      - name: txn_id
+        data_tests: [unique, not_null]
+      - name: txn_date
+        data_tests: [not_null]
+      - name: amount_cop
+        description: Purchase amount in whole Colombian pesos.
+        data_tests: [not_null]
+      - name: channel
+        description: Card present (cp) or card not present (cnp).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["cp", "cnp"]
+
+  - name: stg_merchants
+    description: Merchants, domestic first and then foreign.
+    columns:
+      - name: merchant_id
+        data_tests: [unique, not_null]
+      - name: sector_margin
+        description: Net margin of the merchant's sector, the base of the relative burden.
+        data_tests: [not_null]
+
+  - name: stg_cardholders
+    description: One row per card.
+    columns:
+      - name: cardholder_id
+        data_tests: [unique, not_null]
+
+  - name: stg_issuers
+    description: Card issuers.
+    columns:
+      - name: issuer_id
+        data_tests: [unique, not_null]
+
+  - name: stg_acquirers
+    description: Merchant acquirers.
+    columns:
+      - name: acquirer_id
+        data_tests: [unique, not_null]
+
+  - name: stg_mccs
+    description: MCC dimension with group-level business parameters.
+    columns:
+      - name: mcc
+        data_tests: [unique, not_null]
+      - name: blended_mdr_rate
+        description: Flat rate merchants of the group pay, whatever card is presented.
+        data_tests: [not_null]
+
+  - name: stg_interchange_table
+    description: One row per interchange cell (product x MCC group x channel x region).
+    columns:
+      - name: region
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["domestic", "cross_border"]
+      - name: rate
+        data_tests: [not_null]
+
+  - name: stg_network_fees
+    description: The scheme fee, a single row.
+    columns:
+      - name: scheme_fee_rate
+        data_tests: [not_null]

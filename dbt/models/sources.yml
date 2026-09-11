@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Parquet files written by `python -m ips.data_gen.generate` (Feature 1). Synthetic data:
+      every value follows from config/*.yaml and docs/assumptions.md.
+    meta:
+      external_location: "{{ env_var('IPS_RAW_DIR') }}/{name}.parquet"
+    tables:
+      - name: transactions
+        description: One row per card purchase. Facts only; fees are derived downstream.
+      - name: merchants
+        description: Domestic and foreign merchants with MCC, city, channel, size and acquirer.
+      - name: cardholders
+        description: One row per card, with issuer, product, city and spend segment.
+      - name: issuers
+        description: Card issuers (banks and fintechs) and their bank group.
+      - name: acquirers
+        description: Merchant acquirers, including the foreign one that serves merchants abroad.
+      - name: mccs
+        description: MCC dimension with the group's sector margin, base elasticity and blended MDR.
+      - name: interchange_table
+        description: Expanded interchange grid, product x MCC group x channel x region.
+      - name: network_fees
+        description: Scheme fee the network charges the acquirer, from config/base.yaml.

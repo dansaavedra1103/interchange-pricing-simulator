@@ -118,6 +118,19 @@ sobre atributos observables; si no lo logra, se reporta.
 
 ---
 
+## Feature 2 — Pipeline y datasets analíticos (vigente)
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F2-01 | Carga relativa del comercio = MDR efectivo (MDR / volumen) ÷ margen sectorial del comercio | [S §2.4] | `mart_merchant_relative_burden` |
+| F2-02 | Los comercios sin compras no aparecen en el mart de carga relativa: sin volumen, la carga no está definida | [P] | `mart_merchant_relative_burden` |
+| F2-03 | Aristas del grafo agregadas por mes; cualquier ventana de análisis es la suma de sus meses | [P] | `mart_graph_edges` |
+| F2-04 | El scheme fee llega al warehouse como `network_fees.parquet`, generado desde `base.yaml`: el SQL no tiene tarifas escritas a mano | [P] (diseño) | `generate.py`, `stg_network_fees` |
+| F2-05 | El P&L en SQL replica el transitorio de Python (MDR blended para todos, scheme fee solo del lado adquirente) y se valida fila a fila contra él | Hasta la Feature 3 | `fct_transactions`, `tests/test_pipeline.py` |
+| F2-06 | Tolerancia de la conservación en SQL: 1e-6 relativo, por aritmética de punto flotante | [P] | `dbt/tests/assert_pnl_conservation.sql` |
+
+---
+
 ## Feature 0 — Vertical slice (retirada en la Feature 1)
 
 El generador simple de la Feature 0 se retiró. Sus supuestos F0-01 a F0-12 (emisores,
