@@ -1,0 +1,7 @@
+select
+    acquirer_id,
+    acquirer_type,
+    country,
+    bank_group,
+    pricing_model
+from {{ source('raw', 'acquirers') }}

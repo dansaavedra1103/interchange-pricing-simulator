@@ -1,0 +1,85 @@
+"""Project tasks, runnable on any operating system: ``python -m ips.tasks <task>``.
+
+    generate [--sample]   synthetic data into data/raw (Feature 1)
+    dbt [args ...]        dbt build on DuckDB, or any dbt command (dbt run --select marts)
+    docs [--serve]        dbt docs generate, and optionally serve the lineage in the browser
+    test                  pytest -q, ruff check and ruff format --check
+    all [--sample]        generate, dbt build and test
+
+The Makefile delegates here, so Linux and CI can keep using ``make``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import subprocess
+import sys
+from collections.abc import Sequence
+
+from ips.utils.config import project_root
+from ips.utils.io import run_dbt
+
+_CHECKS = (["pytest", "-q"], ["ruff", "check", "."], ["ruff", "format", "--check", "."])
+
+
+def _generate(sample: bool) -> int:
+    from ips.data_gen.generate import main as generate_main
+
+    generate_main(["--sample"] if sample else [])
+    return 0
+
+
+def _dbt(args: Sequence[str]) -> int:
+    return run_dbt(list(args) or ["build"]).returncode
+
+
+def _docs(serve: bool) -> int:
+    code = run_dbt(["docs", "generate"]).returncode
+    if code == 0 and serve:
+        code = run_dbt(["docs", "serve"]).returncode
+    return code
+
+
+def _test() -> int:
+    root = str(project_root())
+    for command in _CHECKS:
+        code = subprocess.run([sys.executable, "-m", *command], cwd=root, check=False).returncode
+        if code != 0:
+            return code
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Parse the task and run it; returns the exit code."""
+    parser = argparse.ArgumentParser(
+        prog="python -m ips.tasks", description="Interchange Pricing Simulator tasks."
+    )
+    tasks = parser.add_subparsers(dest="task", required=True)
+    generate = tasks.add_parser("generate", help="Generate the synthetic dataset.")
+    generate.add_argument("--sample", action="store_true", help="Use sample_sizes (tests, CI).")
+    dbt = tasks.add_parser("dbt", help="Run dbt against DuckDB (default: dbt build).")
+    dbt.add_argument("args", nargs=argparse.REMAINDER, help="dbt command and flags.")
+    docs = tasks.add_parser("docs", help="Generate the dbt docs (lineage).")
+    docs.add_argument("--serve", action="store_true", help="Serve them in the browser.")
+    tasks.add_parser("test", help="Run pytest and ruff.")
+    run_all = tasks.add_parser("all", help="Generate, build and test.")
+    run_all.add_argument("--sample", action="store_true", help="Use sample_sizes.")
+    options = parser.parse_args(argv)
+
+    if options.task == "generate":
+        return _generate(options.sample)
+    if options.task == "dbt":
+        return _dbt(options.args)
+    if options.task == "docs":
+        return _docs(options.serve)
+    if options.task == "test":
+        return _test()
+    for step in (lambda: _generate(options.sample), lambda: _dbt([]), _test):
+        code = step()
+        if code != 0:
+            return code
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: mart_pnl_by_actor
+    description: >
+      Revenue of every actor that receives part of the MDR, by month, product and MCC group:
+      issuers get the interchange, the network the scheme fee (actor_id NETWORK) and
+      acquirers the residual. Long format, one row per actor and segment.
+    columns:
+      - name: actor_type
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["issuer", "acquirer", "network"]
+      - name: revenue_cop
+        data_tests: [not_null]
+
+  - name: mart_effective_interchange
+    description: >
+      Volume, fees and effective rates by month, product, MCC group, channel and region.
+      Effective interchange includes the fixed component and the small-ticket tier.
+    columns:
+      - name: effective_interchange_rate
+        description: Interchange over volume in the segment.
+        data_tests: [not_null]
+
+  - name: mart_merchant_relative_burden
+    description: >
+      Relative burden per merchant with purchases: effective MDR rate over the merchant's
+      sector margin (spec §2.4), the main predictor of acceptance loss in the simulator.
+    columns:
+      - name: merchant_id
+        data_tests: [unique, not_null]
+      - name: relative_burden
+        description: Share of the merchant's margin paid as MDR.
+        data_tests: [not_null]
+
+  - name: mart_graph_edges
+    description: >
+      Cardholder-merchant edges by month, weighted by purchases and amount. Any window is the
+      sum of its months; Feature 4 builds the graph from here.
+    columns:
+      - name: n_txns
+        data_tests: [not_null]

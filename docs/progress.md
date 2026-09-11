@@ -2,108 +2,88 @@
 
 ## Feature en curso
 
-Feature 1 (generador de datos sintéticos) cerrada en la rama `feat/01-synthetic-data`, con PR
-contra `main`. Siguiente según el orden de CLAUDE.md: **Feature 2 — Pipeline y datasets
-analíticos** (dbt sobre DuckDB).
+La Feature 2 (pipeline y datasets analíticos) está cerrada en la rama `feat/02-dbt-pipeline`,
+con PR contra `main`. Siguiente según el orden de CLAUDE.md: **Feature 3 — Unit economics y
+revenue analytics**.
 
-## Feature 1 — Generador de datos sintéticos (cerrada)
+## Feature 2 — Pipeline y datasets analíticos (cerrada)
 
 ### Qué se hizo
 
+- **Proyecto dbt en `dbt/`, sobre DuckDB:**
+  - fuentes `raw` que leen los parquet en su lugar;
+  - 8 vistas de staging;
+  - `fct_transactions`, con interchange, scheme fee, MDR y margen del adquirente por fila;
+  - 5 dimensiones;
+  - 4 marts: P&L por actor, interchange efectivo, carga relativa por comercio y aristas
+    mensuales del grafo;
+  - la macro `interchange_lookup`;
+  - el test singular `assert_pnl_conservation`.
+- **`src/ips/utils/io.py`:**
+  - rutas desde el config y lectura de parquet;
+  - el warehouse se abre en solo lectura por defecto;
+  - `run_dbt` corre dbt en un subproceso, con las rutas pasadas por variable de entorno.
+- **`src/ips/tasks.py`:** `python -m ips.tasks generate|dbt|docs|test|all`, multiplataforma.
+  El `Makefile` delega en él.
+- **CI** (`.github/workflows/ci.yml`) con Python 3.11 y 3.12:
+  1. ruff y pytest;
+  2. generación de la muestra;
+  3. `dbt build`.
 - **Configuración:**
-  - `config/base.yaml`, reescrito;
-  - `config/mcc_groups.yaml`, con 12 grupos y 33 MCC;
-  - `config/interchange_table.yaml`, con la grilla base, los recargos, el tramo de micropagos
-    y los overrides.
-  - `src/ips/utils/config.py` los carga y valida en conjunto: participaciones que suman 1,
-    grilla completa, referencias válidas entre archivos y claves desconocidas rechazadas.
-- **`src/ips/data_gen/`:**
-  - `entities.py`: contratos pydantic por tabla y los esquemas polars equivalentes;
-  - `distributions.py`: los muestreadores;
-  - `population.py`: emisores, adquirentes, tarjetas y comercios;
-  - `affinity.py`: segmentos latentes, clientela y el muestreador de comercios factorizado;
-  - `transactions.py`: el proceso de compras;
-  - `fraud.py`: fraude y contracargos;
-  - `interchange_table.py`: la tabla expandida, `lookup` y `apply`;
-  - `diagnostics.py`: concentración, modularidad, NMI y Leiden;
-  - `generate.py`: la CLI, que escribe parquet más `manifest.json` en `data/raw/`.
-- `src/ips/utils/logging.py` y `src/ips/economics/simple_pnl.py`, este último adaptado a los
-  datos de la Feature 1.
-- **Tests:** 55 rápidos (`pytest -q`) y 2 lentos (`pytest -m slow`):
-  - `test_config.py`: 12 casos de validación que deben fallar;
-  - `test_interchange_table.py`;
-  - `test_simple_pnl.py`: la conservación del P&L sobre datos de la Feature 1;
-  - `test_data_gen.py`: integridad, determinismo, rangos de calibración y comunidades;
-  - lentos: generación a escala completa y ejecución del notebook 01.
-- `notebooks/01_data_validation.ipynb`: tabla de calibración, gráficos con matplotlib, grafo
-  y chequeo del P&L. Tarda ~60 s sobre los 6M.
-- `docs/assumptions.md`: supuestos F1-01 a F1-30 con sus fuentes; la F0 queda marcada como
-  retirada.
+  - `sample_sizes` y `output.warehouse_path` en `base.yaml`;
+  - `generate --sample`;
+  - `network_fees.parquet`.
+- **Tests:** 64 rápidos.
+  - `test_pipeline.py` construye el warehouse sobre la muestra y lo compara con Python fila a
+    fila y por mart.
+  - `test_io.py` cubre la capa de I/O.
+- `docs/architecture.md`, con el diagrama de linaje; supuestos F2-01 a F2-06 en
+  `docs/assumptions.md`.
 
 ### Resultado (datos sintéticos, semilla 20260910)
 
-- **Escala:** 6M compras, 150.000 tarjetas y 30.600 comercios, generados en 5,7 s. El parquet
-  de transacciones pesa 88,5 MB.
-- **Anclas de calibración:**
-
-  | Métrica | Resultado | Ancla |
-  |---|---|---|
-  | Débito, % de tarjetas | 73,8 % | Superfinanciera: 74 % |
-  | Débito, % de compras | 67,6 % | Superfinanciera: 68 % |
-  | Ticket promedio | 129k débito, 248k crédito | 131k / 244k |
-  | Compras por tarjeta al año | 20 | 19–26 |
-  | Crecimiento 2025 vs 2024 | +18,7 % | BanRep: +19 % |
-  | Fraude, % del valor | 0,073 % | Spec: 0,05–0,15 % |
-  | Fraude en no presente | 83 % del valor | BCE: 84 % |
-  | Cross-border vs doméstico | 13,6x | BCE: ~14x |
-  | Margen del adquirente | 0,44–0,51 % por grupo | Spec: 0,2–0,7 % |
-
-- **Grafo:** Leiden con resolución 2 recupera la estructura plantada ciudad × clientela (NMI
-  ~0,68) y se parece mucho más a la clientela que al grupo de MCC. Con resolución 1 solo
-  separa ciudades.
-- **P&L:**
-  - brecha de conservación de 3,8e-6 COP sobre 21,5 billones de MDR;
-  - `compute_pnl` tarda 1,5 s sobre 6M filas;
-  - ingreso de la red de 1.307.886.180 COP (13 pb, por construcción).
+- **`dbt build` sobre los 6M:** 69 de 69 nodos OK (10 tablas, 8 vistas y 51 tests, incluida
+  la conservación) en 13 s. La generación tarda ~7 s.
+- **Paridad Python ↔ SQL:** `fct_transactions` coincide con `compute_pnl` en cada
+  transacción de la muestra. Los marts cuadran con el fct, y las aristas con
+  `diagnostics.edge_list`.
+- **`dbt docs generate`:** produce el linaje completo, de las fuentes a los marts.
 
 ### Decisiones
 
-- **F0 retirada** (decisión tuya): se borraron `simple_generator.py`, el notebook 00 y
-  `test_vertical_slice.py`. La conservación vive en `tests/test_simple_pnl.py`.
-- **Datos:**
-  - 24 meses y 6M compras: dos ciclos anuales para la F8;
-  - los crudos son solo hechos, sin tarifas;
-  - las etiquetas latentes se escriben aparte, en `data/raw/latent/`, como verdad de terreno
-    para la F4, nunca como variables.
-- **Librerías:** matplotlib para los notebooks (se ven en GitHub); plotly queda para la app.
-  **igraph** en lugar de networkx: Leiden en C, 3,2 MB; rustworkx no tiene detección de
-  comunidades.
-- **Módulo extra `population.py`**, que no estaba en el plan, para separar la generación de
-  poblaciones de los contratos de `entities.py`.
-- **Fraude:** calibrado contra la estructura *observada* del BCE, no contra la tasa base,
-  resolviendo analíticamente con el valor esperado (probabilidad × monto). Los tests de fraude
-  usan ese mismo valor esperado, porque el realizado es ruidoso en muestras chicas.
-- **MDR blended por grupo** = costo del grupo (interchange + scheme fee) + ~0,45 pp.
-- **Grafo:** resolución 2 de Leiden en los tests y el notebook.
-- **Tests `slow` excluidos por defecto** (`addopts = -m 'not slow'`).
+- **dbt corre en un subproceso**, no con `dbtRunner` en proceso: así su conexión a DuckDB
+  nunca queda abierta en quien lo llama, que puede leer el warehouse enseguida.
+- **Rutas absolutas por `IPS_RAW_DIR` e `IPS_WAREHOUSE`:** dbt no depende del directorio de
+  trabajo. Para moverse a Snowflake basta cambiar `profiles.yml` y las fuentes.
+- **dbt-duckdb va en el extra `pipeline`**, porque el simulador no lo necesita.
+- **Runner de tareas en Python** (decisión tuya), porque `make` no existe en Windows.
+- **CI con Python 3.11 y 3.12** (decisión tuya): valida la versión que pide la spec.
+- **Marts:** las aristas del grafo quedan por mes, y la carga relativa solo para comercios
+  con compras.
 
 ### Pendientes
 
 - Contrastar la tabla de interchange con las que publican Mastercard y Redeban en Colombia
   (Decreto 1692 de 2020). Hoy devuelven 403.
-- Actualizar las anclas de nivel con las cifras de 2025 del reporte de BanRep; el PDF no se
-  pudo leer sin poppler ni pypdf.
-- En la carpeta principal tienes un comentario sin commitear en
-  `src/ips/data_gen/simple_generator.py`. Esta rama borra ese archivo: descarta o mueve la
-  nota antes de hacer `git pull`.
-- El `.venv` es Python 3.11.9; CLAUDE.md y la spec piden 3.12.
+- Actualizar las anclas de calibración con las cifras de 2025 del reporte de BanRep.
+- El `.venv` local sigue en Python 3.11.9; la CI cubre 3.12.
 - `CLAUDE.md` vive en `C:\Users\USUARIO\` y no en el repo.
 - Evaluar en la F3 liquidar en unidades enteras (centavos), para que la conservación y el
   determinismo sean exactos sin tolerancia.
-- El `Makefile` llega con la F2.
+- **DuckDB** permite un escritor o varios lectores, no ambos a la vez: hay que cerrar los
+  notebooks que tengan abierto el warehouse antes de correr `dbt build`.
 
-## Feature 0 — Vertical slice (cerrada; retirada en la Feature 1)
+## Feature 1 — Generador de datos sintéticos (mergeada, PR #2)
 
-PR #1, mergeado. Tajada vertical con generador simple, P&L por actor y test de conservación.
-En la Feature 1 se retiró el generador y el notebook 00; el P&L transitorio y su test de
-conservación siguen vivos sobre los datos nuevos.
+6M compras en 24 meses para una red colombiana ficticia, calibradas con Superfinanciera,
+BanRep, DANE y BCE, con los supuestos F1-01 a F1-30 en `docs/assumptions.md`:
+
+- la F0 quedó retirada;
+- se usa igraph en lugar de networkx;
+- las etiquetas latentes se guardan aparte en `data/raw/latent/`;
+- el notebook `01_data_validation.ipynb` trae la tabla de calibración.
+
+## Feature 0 — Vertical slice (mergeada, PR #1; retirada en la Feature 1)
+
+Tajada vertical con un generador simple, P&L por actor y test de conservación. El P&L
+transitorio y su test siguen vivos sobre los datos de la Feature 1.

@@ -130,6 +130,7 @@ class OutputConfig(_Frozen):
     """Output locations, relative to the project root unless absolute."""
 
     raw_dir: Path
+    warehouse_path: Path
 
 
 class Includes(_Frozen):
@@ -422,6 +423,7 @@ class ProjectConfig(_Frozen):
     seed: int
     dates: DateRange
     sizes: Sizes
+    sample_sizes: Sizes
     output: OutputConfig
     includes: Includes
     products: tuple[str, ...] = Field(min_length=1)

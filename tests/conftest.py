@@ -6,16 +6,13 @@ import polars as pl
 import pytest
 
 from ips.data_gen.generate import GeneratedData, generate
-from ips.utils.config import ProjectConfig, Sizes, load_config
-
-SMALL_SIZES = Sizes(
-    n_cardholders=6_000, n_merchants=1_500, n_foreign_merchants=60, n_transactions=200_000
-)
+from ips.utils.config import ProjectConfig, load_config
 
 
 def small_config() -> ProjectConfig:
-    """``base.yaml`` with small sizes: the same parameters, a dataset built in seconds."""
-    return load_config().model_copy(update={"sizes": SMALL_SIZES})
+    """``base.yaml`` with its ``sample_sizes``: the same parameters, built in seconds."""
+    cfg = load_config()
+    return cfg.model_copy(update={"sizes": cfg.sample_sizes})
 
 
 @pytest.fixture(scope="session")

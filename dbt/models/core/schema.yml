@@ -1,0 +1,93 @@
+version: 2
+
+models:
+  - name: fct_transactions
+    description: >
+      One row per purchase with the network's fees applied: interchange from the interchange
+      table (macro interchange_lookup), the scheme fee from network_fees and the group's
+      blended MDR. The acquirer keeps the residual. Mirrors
+      ips.economics.simple_pnl.compute_pnl, and a pytest checks both agree row by row.
+    columns:
+      - name: txn_id
+        data_tests: [unique, not_null]
+      - name: txn_date
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+      - name: cardholder_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_cardholder')
+                field: cardholder_id
+      - name: merchant_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_merchant')
+                field: merchant_id
+      - name: issuer_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_issuer')
+                field: issuer_id
+      - name: acquirer_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_acquirer')
+                field: acquirer_id
+      - name: region
+        description: Domestic, or cross-border when the merchant is abroad.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["domestic", "cross_border"]
+      - name: interchange_cop
+        description: Paid by the acquirer to the issuer. Null would mean a missing table cell.
+        data_tests: [not_null]
+      - name: scheme_fee_cop
+        description: The network's revenue.
+        data_tests: [not_null]
+      - name: mdr_cop
+        description: What the merchant pays, the group's blended rate times the amount.
+        data_tests: [not_null]
+      - name: acquirer_net_cop
+        description: >
+          MDR minus interchange minus scheme fee. Negative when the blended rate does not
+          cover the card presented (typically premium, card not present or cross-border).
+        data_tests: [not_null]
+
+  - name: dim_merchant
+    description: Merchants with their MCC name and sector margin.
+    columns:
+      - name: merchant_id
+        data_tests: [unique, not_null]
+
+  - name: dim_cardholder
+    description: Cards with the type of their issuer.
+    columns:
+      - name: cardholder_id
+        data_tests: [unique, not_null]
+
+  - name: dim_issuer
+    description: Card issuers.
+    columns:
+      - name: issuer_id
+        data_tests: [unique, not_null]
+
+  - name: dim_acquirer
+    description: Merchant acquirers.
+    columns:
+      - name: acquirer_id
+        data_tests: [unique, not_null]
+
+  - name: dim_date
+    description: Daily calendar over the transaction range, without gaps.
+    columns:
+      - name: date_day
+        data_tests: [unique, not_null]
