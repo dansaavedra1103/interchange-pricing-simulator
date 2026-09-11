@@ -213,6 +213,23 @@ def test_merchant_concentration(transactions: pl.DataFrame) -> None:
     assert top_share(volume, 0.10) > 0.40
 
 
+def test_pricing_model_follows_acquirer_and_tier(cfg: ProjectConfig, data: GeneratedData) -> None:
+    # IC++ solo para comercios grandes y medianos de adquirentes bancarios (mixed); el resto,
+    # incluidos los comercios del exterior, paga blended.
+    acquirers = data.tables["acquirers"].select(
+        "acquirer_id", pl.col("pricing_model").alias("acquirer_model")
+    )
+    merchants = data.tables["merchants"].join(acquirers, on="acquirer_id")
+    icpp_tier = pl.col("size_tier").cast(pl.Utf8).is_in(list(cfg.merchants.icpp_tiers))
+    expected = (pl.col("acquirer_model") == "icpp") | (
+        (pl.col("acquirer_model") == "mixed") & icpp_tier
+    )
+    assert merchants.select(((pl.col("pricing_model") == "icpp") == expected).all()).item()
+    counts = dict(merchants["pricing_model"].cast(pl.Utf8).value_counts().iter_rows())
+    assert counts.get("icpp", 0) > 0
+    assert counts.get("blended", 0) > 0
+
+
 # ---------------------------------------------------------------------------
 # Comunidades en el grafo tarjetahabiente-comercio
 # ---------------------------------------------------------------------------

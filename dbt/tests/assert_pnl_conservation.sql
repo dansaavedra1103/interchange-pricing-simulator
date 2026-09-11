@@ -1,6 +1,7 @@
--- Conservación del P&L: lo que reciben emisor, red y adquirente debe igualar el MDR que pagan
--- los comercios en cada fila, en cada mart y en los totales. Devuelve las filas que violan la
--- identidad; el test pasa cuando no devuelve ninguna.
+-- Conservación del P&L: lo que se quedan emisor, red y adquirente debe igualar el MDR que
+-- pagan los comercios en cada fila, en cada mart y en los totales; y el ingreso de la red debe
+-- ser exactamente la suma de sus conceptos. Devuelve las filas que violan alguna identidad; el
+-- test pasa cuando no devuelve ninguna.
 with fct as (
     select * from {{ ref('fct_transactions') }}
 ),
@@ -9,8 +10,18 @@ row_level as (
     select
         'fct_transactions' as check_name,
         cast(txn_id as varchar) as grain,
-        interchange_cop + scheme_fee_cop + acquirer_net_cop as received,
+        issuer_gross_cop + network_revenue_cop + acquirer_gross_cop as received,
         mdr_cop as paid
+    from fct
+),
+
+network_drivers as (
+    select
+        'fct network drivers' as check_name,
+        cast(txn_id as varchar) as grain,
+        network_assessment_cop + network_authorization_cop + network_cross_border_cop
+            as received,
+        network_revenue_cop as paid
     from fct
 ),
 
@@ -37,7 +48,7 @@ interchange_segments as (
     select
         'mart_effective_interchange' as check_name,
         concat_ws('|', txn_month, product, mcc_group, channel, region) as grain,
-        interchange_cop + scheme_fee_cop + acquirer_net_cop as received,
+        issuer_gross_cop + network_revenue_cop + acquirer_gross_cop as received,
         mdr_cop as paid
     from {{ ref('mart_effective_interchange') }}
 ),
@@ -71,6 +82,8 @@ totals as (
 
 checks as (
     select * from row_level
+    union all
+    select * from network_drivers
     union all
     select * from pnl_segments
     union all

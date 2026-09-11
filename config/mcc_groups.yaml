@@ -5,26 +5,29 @@
 # Parámetros por grupo:
 #   sector_margin: margen neto típico del sector; base de la carga relativa (MDR / margen).
 #   base_elasticity: sensibilidad relativa de la aceptación a la carga (1 = promedio). Feature 5.
-#   blended_mdr_rate: tarifa plana de lista al comercio, usada por el P&L transitorio.
+#   blended_mdr_rate: tarifa plana de lista de los comercios que pagan blended.
 #   online_share: probabilidad de que una compra del grupo sea no presente (online).
 #   weekday_profile: perfil de actividad lunes..domingo (ver weekday_profiles).
 #   fraud_risk: multiplicador del riesgo de fraude del grupo (1 = promedio).
 #   dispute_rate: probabilidad de contracargo en una transacción legítima.
-#   El blended_mdr_rate está calibrado como costo del grupo (interchange + scheme fee sobre
-#   el volumen) más ~0,45 pp, para que el margen del adquirente quede en 0,2-0,7 % (spec §1.6).
+#   El blended_mdr_rate está calibrado como costo del grupo para el adquirente (interchange y
+#   fees de red de su lado, sobre el volumen doméstico en blended) más ~0,45 pp, redondeado a
+#   0,05 pp, para que su margen quede en 0,2-0,7 % (spec §1.6). Recalibrado en la Feature 3:
+#   el fee fijo de autorización sube la tarifa de los grupos de ticket bajo (transporte,
+#   alimentos) y baja la de los de ticket alto (viajes, retail).
 groups:
-  grocery: {sector_margin: 0.03, base_elasticity: 1.5, blended_mdr_rate: 0.0140, online_share: 0.04, weekday_profile: weekend_shopping, fraud_risk: 0.8, dispute_rate: 0.0002}
-  fuel: {sector_margin: 0.03, base_elasticity: 1.5, blended_mdr_rate: 0.0150, online_share: 0.0, weekday_profile: flat, fraud_risk: 1.2, dispute_rate: 0.0002}
-  utilities_telecom: {sector_margin: 0.10, base_elasticity: 0.8, blended_mdr_rate: 0.0160, online_share: 0.55, weekday_profile: weekday_business, fraud_risk: 0.6, dispute_rate: 0.0003}
-  restaurants: {sector_margin: 0.08, base_elasticity: 1.2, blended_mdr_rate: 0.0210, online_share: 0.12, weekday_profile: nightlife, fraud_risk: 1.0, dispute_rate: 0.0004}
-  health: {sector_margin: 0.10, base_elasticity: 0.7, blended_mdr_rate: 0.0170, online_share: 0.06, weekday_profile: flat, fraud_risk: 0.8, dispute_rate: 0.0003}
-  retail: {sector_margin: 0.12, base_elasticity: 1.0, blended_mdr_rate: 0.0230, online_share: 0.15, weekday_profile: weekend_shopping, fraud_risk: 1.0, dispute_rate: 0.0006}
-  home_electronics: {sector_margin: 0.08, base_elasticity: 1.0, blended_mdr_rate: 0.0220, online_share: 0.25, weekday_profile: weekend_shopping, fraud_risk: 1.5, dispute_rate: 0.0008}
-  travel: {sector_margin: 0.06, base_elasticity: 0.9, blended_mdr_rate: 0.0290, online_share: 0.60, weekday_profile: flat, fraud_risk: 1.8, dispute_rate: 0.0030}
-  transport: {sector_margin: 0.07, base_elasticity: 1.3, blended_mdr_rate: 0.0160, online_share: 0.35, weekday_profile: weekday_business, fraud_risk: 1.0, dispute_rate: 0.0005}
-  digital: {sector_margin: 0.20, base_elasticity: 0.6, blended_mdr_rate: 0.0250, online_share: 1.0, weekday_profile: flat, fraud_risk: 2.0, dispute_rate: 0.0025}
-  education: {sector_margin: 0.15, base_elasticity: 0.5, blended_mdr_rate: 0.0140, online_share: 0.30, weekday_profile: weekday_business, fraud_risk: 0.5, dispute_rate: 0.0002}
-  entertainment: {sector_margin: 0.10, base_elasticity: 1.1, blended_mdr_rate: 0.0210, online_share: 0.25, weekday_profile: weekend_leisure, fraud_risk: 1.0, dispute_rate: 0.0008}
+  grocery: {sector_margin: 0.03, base_elasticity: 1.5, blended_mdr_rate: 0.0160, online_share: 0.04, weekday_profile: weekend_shopping, fraud_risk: 0.8, dispute_rate: 0.0002}
+  fuel: {sector_margin: 0.03, base_elasticity: 1.5, blended_mdr_rate: 0.0155, online_share: 0.0, weekday_profile: flat, fraud_risk: 1.2, dispute_rate: 0.0002}
+  utilities_telecom: {sector_margin: 0.10, base_elasticity: 0.8, blended_mdr_rate: 0.0165, online_share: 0.55, weekday_profile: weekday_business, fraud_risk: 0.6, dispute_rate: 0.0003}
+  restaurants: {sector_margin: 0.08, base_elasticity: 1.2, blended_mdr_rate: 0.0215, online_share: 0.12, weekday_profile: nightlife, fraud_risk: 1.0, dispute_rate: 0.0004}
+  health: {sector_margin: 0.10, base_elasticity: 0.7, blended_mdr_rate: 0.0180, online_share: 0.06, weekday_profile: flat, fraud_risk: 0.8, dispute_rate: 0.0003}
+  retail: {sector_margin: 0.12, base_elasticity: 1.0, blended_mdr_rate: 0.0220, online_share: 0.15, weekday_profile: weekend_shopping, fraud_risk: 1.0, dispute_rate: 0.0006}
+  home_electronics: {sector_margin: 0.08, base_elasticity: 1.0, blended_mdr_rate: 0.0215, online_share: 0.25, weekday_profile: weekend_shopping, fraud_risk: 1.5, dispute_rate: 0.0008}
+  travel: {sector_margin: 0.06, base_elasticity: 0.9, blended_mdr_rate: 0.0270, online_share: 0.60, weekday_profile: flat, fraud_risk: 1.8, dispute_rate: 0.0030}
+  transport: {sector_margin: 0.07, base_elasticity: 1.3, blended_mdr_rate: 0.0200, online_share: 0.35, weekday_profile: weekday_business, fraud_risk: 1.0, dispute_rate: 0.0005}
+  digital: {sector_margin: 0.20, base_elasticity: 0.6, blended_mdr_rate: 0.0240, online_share: 1.0, weekday_profile: flat, fraud_risk: 2.0, dispute_rate: 0.0025}
+  education: {sector_margin: 0.15, base_elasticity: 0.5, blended_mdr_rate: 0.0135, online_share: 0.30, weekday_profile: weekday_business, fraud_risk: 0.5, dispute_rate: 0.0002}
+  entertainment: {sector_margin: 0.10, base_elasticity: 1.1, blended_mdr_rate: 0.0215, online_share: 0.25, weekday_profile: weekend_leisure, fraud_risk: 1.0, dispute_rate: 0.0008}
 
 # Multiplicadores de actividad por día de la semana, de lunes a domingo.
 weekday_profiles:

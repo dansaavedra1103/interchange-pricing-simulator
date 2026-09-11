@@ -3,9 +3,10 @@ version: 2
 models:
   - name: mart_pnl_by_actor
     description: >
-      Revenue of every actor that receives part of the MDR, by month, product and MCC group:
-      issuers get the interchange, the network the scheme fee (actor_id NETWORK) and
-      acquirers the residual. Long format, one row per actor and segment.
+      Gross revenue of every actor that receives part of the MDR, by month, product and MCC
+      group: issuers keep the interchange net of their network fees, the network collects the
+      fees of both sides (actor_id NETWORK) and acquirers keep the residual. Operating costs
+      (rewards, fraud, funding, processing) live in ips.economics.pnl.
     columns:
       - name: actor_type
         data_tests:
@@ -17,11 +18,15 @@ models:
 
   - name: mart_effective_interchange
     description: >
-      Volume, fees and effective rates by month, product, MCC group, channel and region.
-      Effective interchange includes the fixed component and the small-ticket tier.
+      Volume, fees and effective rates by month, product, MCC group, channel and region:
+      effective interchange (with the fixed component and the small-ticket tier), the
+      network's net revenue yield, the effective MDR and the acquirer's margin.
     columns:
       - name: effective_interchange_rate
         description: Interchange over volume in the segment.
+        data_tests: [not_null]
+      - name: net_revenue_yield
+        description: Network revenue over volume in the segment.
         data_tests: [not_null]
 
   - name: mart_merchant_relative_burden

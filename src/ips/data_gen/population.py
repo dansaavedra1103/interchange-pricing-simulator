@@ -20,7 +20,7 @@ from ips.data_gen.distributions import (
     quantile_tiers,
     row_categorical,
 )
-from ips.data_gen.entities import table_schemas
+from ips.data_gen.entities import PRICING_MODELS, table_schemas
 from ips.utils.config import MERCHANT_CHANNELS, SIZE_TIERS, SPEND_SEGMENTS, ProjectConfig
 
 _MIN_MARGIN, _MAX_MARGIN = 0.005, 0.9
@@ -208,6 +208,13 @@ def draw_merchants(
     clientele = draw_clientele(rng, cfg, group_idx)
 
     acquirer_ids = [a.acquirer_id for a in cfg.acquirers] + [xb.acquirer.acquirer_id]
+    # Los adquirentes bancarios cobran IC++ a sus comercios grandes y medianos; agregadores,
+    # comercios pequeños y comercios del exterior pagan tarifa blended (spec §1.5).
+    acquirer_models = np.array(
+        [a.pricing_model for a in cfg.acquirers] + [xb.acquirer.pricing_model]
+    )[acquirer_idx]
+    icpp_tier = np.isin(tier_idx, [SIZE_TIERS.index(t) for t in cfg.merchants.icpp_tiers])
+    is_icpp = (acquirer_models == "icpp") | ((acquirer_models == "mixed") & icpp_tier)
     country = np.concatenate([np.zeros(n_dom, dtype=np.int64), country_for + 1])
     frame = pl.DataFrame(
         {
@@ -220,6 +227,7 @@ def draw_merchants(
             "size_tier": _pick("size_tier", SIZE_TIERS, tier_idx),
             "size_weight": size_weight,
             "acquirer_id": _pick("acquirer_id", acquirer_ids, acquirer_idx),
+            "pricing_model": _pick("pricing_model", PRICING_MODELS, is_icpp.astype(np.int64)),
             "sector_margin": sector_margin,
         }
     ).cast(dict(table_schemas(cfg)["merchants"]))

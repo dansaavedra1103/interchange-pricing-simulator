@@ -9,8 +9,8 @@ Cada supuesto se registra aquí en el momento de introducirlo, con su origen:
 - **[P] supuesto propio**: elección de diseño sin calibración externa. Debe leerse como
   ilustrativa, nunca como hallazgo empírico.
 
-Los valores exactos viven en `config/base.yaml`, `config/mcc_groups.yaml` y
-`config/interchange_table.yaml`; este documento explica el porqué.
+Los valores exactos viven en `config/base.yaml`, `config/mcc_groups.yaml`,
+`config/interchange_table.yaml` y `config/economics.yaml`; este documento explica el porqué.
 
 ---
 
@@ -83,18 +83,21 @@ sobre atributos observables; si no lo logra, se reporta.
 | F1-26 | Tramo de micropagos: ≤ 20.000 COP a 0,20 % sin fijo, para débito y crédito estándar en alimentos, transporte y restaurantes, solo doméstico | [S §1.4: tarifas especiales para montos pequeños]; valores [P] | `interchange_table.yaml: small_ticket` |
 | F1-27 | En cada celda: débito < crédito estándar < premium ≤ comercial | [S §1.4] | verificado en `tests/test_interchange_table.py` |
 
-### P&L transitorio (`simple_pnl`)
+### P&L transitorio (`simple_pnl`, reemplazado en la Feature 3)
+
+Se conserva como registro: la Feature 3 retiró `simple_pnl.py`. F1-28 sigue vivo dentro de
+F3-01, F1-29 quedó reemplazado por F3-03 y F3-06, y F1-30 lo resuelve F3-05.
 
 | # | Supuesto | Origen | Dónde |
 |---|---|---|---|
-| F1-28 | Scheme fee de 0,13 % del monto, cobrado al adquirente desde el MDR | [S §1.2]; rango 0,10–0,15 % [S §1.6] | `base.yaml: network` |
-| F1-29 | Todo comercio paga el MDR blended de su grupo, calibrado como costo del grupo + ~0,45 pp: margen del adquirente de 0,44–0,51 % por grupo | Rango de margen [S §1.6: 0,2–0,7 %]; tasas [P] | `mcc_groups.yaml: blended_mdr_rate` |
-| F1-30 | En compras cross-border el comercio extranjero también paga la tarifa blended de su grupo, y el adquirente extranjero puede perder. IC++, tarifas cross-border y de autorización y costos del emisor llegan con la Feature 3 | [P] | `simple_pnl.py` |
+| F1-28 | Scheme fee de 0,13 % del monto, cobrado al adquirente desde el MDR | [S §1.2]; rango 0,10–0,15 % [S §1.6] | Reemplazado por F3-01 |
+| F1-29 | Todo comercio paga el MDR blended de su grupo, calibrado como costo del grupo + ~0,45 pp: margen del adquirente de 0,44–0,51 % por grupo | Rango de margen [S §1.6: 0,2–0,7 %]; tasas [P] | Reemplazado por F3-03 y F3-06 |
+| F1-30 | En compras cross-border el comercio extranjero también paga la tarifa blended de su grupo, y el adquirente extranjero puede perder | [P] | Reemplazado por F3-05 |
 
 ### Consecuencias a tener presentes
 
-- Con un scheme fee puramente porcentual, el net revenue yield de la red es **13 pb por
-  construcción** hasta la Feature 3.
+- Hasta la Feature 2, con un scheme fee puramente porcentual, el net revenue yield de la red
+  era de 13 pb por construcción. Desde la Feature 3 resulta de las tarifas de F3-01 y F3-02.
 - Que el generador reproduzca sus anclas (tabla de calibración del notebook 01) prueba que es
   consistente con sus supuestos, no que describa el mercado colombiano real.
 - La calibración de nivel usa Superfinanciera 2022 ajustada por inflación. Pendiente:
@@ -125,9 +128,95 @@ sobre atributos observables; si no lo logra, se reporta.
 | F2-01 | Carga relativa del comercio = MDR efectivo (MDR / volumen) ÷ margen sectorial del comercio | [S §2.4] | `mart_merchant_relative_burden` |
 | F2-02 | Los comercios sin compras no aparecen en el mart de carga relativa: sin volumen, la carga no está definida | [P] | `mart_merchant_relative_burden` |
 | F2-03 | Aristas del grafo agregadas por mes; cualquier ventana de análisis es la suma de sus meses | [P] | `mart_graph_edges` |
-| F2-04 | El scheme fee llega al warehouse como `network_fees.parquet`, generado desde `base.yaml`: el SQL no tiene tarifas escritas a mano | [P] (diseño) | `generate.py`, `stg_network_fees` |
-| F2-05 | El P&L en SQL replica el transitorio de Python (MDR blended para todos, scheme fee solo del lado adquirente) y se valida fila a fila contra él | Hasta la Feature 3 | `fct_transactions`, `tests/test_pipeline.py` |
+| F2-04 | Las tarifas de la red llegan al warehouse como `network_fees.parquet` (desde la F3, junto con `pricing_terms.parquet`), generadas desde el config: el SQL no tiene tarifas escritas a mano | [P] (diseño) | `params.py`, `stg_network_fees`, `stg_pricing_terms` |
+| F2-05 | El P&L en SQL replica la cascada de tarifas de Python (`ips.economics.pnl` desde la F3) y se valida fila a fila contra ella | [P] (diseño) | `fct_transactions`, `tests/test_pipeline.py` |
 | F2-06 | Tolerancia de la conservación en SQL: 1e-6 relativo, por aritmética de punto flotante | [P] | `dbt/tests/assert_pnl_conservation.sql` |
+
+---
+
+## Feature 3 — Unit economics y revenue analytics (vigente)
+
+El P&L tiene dos capas. La **cascada de tarifas** reparte el MDR y cumple la identidad de
+conservación: emisor bruto + ingreso de la red + adquirente bruto = MDR. Los **costos
+operativos** quedan fuera de la identidad y convierten el bruto de cada actor en su
+contribución.
+
+### Tarifas de la red y precio al comercio
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F3-01 | Fees de la red al adquirente: assessment (scheme fee) de 0,13 % del monto, 80 COP por autorización y 0,45 % en compras cross-border | Assessment [S §1.2: 0,13 %]; autorización [L: APF de Visa, US$0,0195 por autorización de crédito ≈ 80 COP]; cross-border [L: IAF de Visa, 0,45 %] | `economics.yaml: network.acquirer` |
+| F3-02 | Fees de la red al emisor: assessment de 0,02 %, 40 COP por autorización y 0,8 % en compras cross-border. Con el del adquirente, los assessments suman 0,15 % del volumen. El recargo cross-border es del orden del ISA de Visa (0,80 %), que en EE. UU. paga el adquirente; aquí lo paga el emisor, que en la práctica lo traslada al tarjetahabiente como comisión por compras en el exterior (fuera del modelo) | Assessments [S §1.6: 0,10–0,15 % del volumen entre ambos lados]; cross-border [L: ISA de Visa, 0,80 %]; reparto entre lados y fee de autorización [P] | `economics.yaml: network.issuer` |
+| F3-03 | Modelo de precio del comercio: los adquirentes bancarios (`mixed`) cobran IC++ a sus comercios grandes y medianos; los agregadores, los comercios pequeños y micro y los del exterior pagan blended. Queda en `merchants.pricing_model`, que leen Python y SQL | Modelos [S §1.5]; reglas [P] | `base.yaml: merchants.icpp_tiers`, `population.py` |
+| F3-04 | Margen IC++ de 0,20 % + 100 COP: ~0,26 % del monto, en el extremo bajo del rango del adquirente porque lo negocian comercios grandes y medianos | Rango [S §1.6: 0,2–0,7 %]; valor [P] | `economics.yaml: acquirer.icpp_markup` |
+| F3-05 | En blended, recargo de 1,5 pp cuando la tarjeta es extranjera para el comercio: los comercios del exterior pagan su tarifa de lista más el recargo en las compras con tarjeta colombiana | [L: Stripe cobra +1,5 % por tarjeta internacional sobre su tarifa de EE. UU.] | `economics.yaml: acquirer.blended_cross_border_surcharge` |
+| F3-06 | MDR blended por grupo recalibrado como costo del grupo para el adquirente (interchange y fees de red de su lado, sobre el volumen doméstico en blended) + 0,45 pp, redondeado a 0,05 pp: margen de 0,43–0,47 % por grupo. El fee fijo de autorización sube la tarifa de los grupos de ticket bajo (transporte 1,6 → 2,0 %, alimentos 1,4 → 1,6 %) y la baja en los de ticket alto (viajes 2,9 → 2,7 %, retail 2,3 → 2,2 %) | Rango [S §1.6: 0,2–0,7 %]; tasas [P] | `mcc_groups.yaml: blended_mdr_rate` |
+
+### Costos operativos
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F3-07 | Procesamiento del adquirente: 0,10 % + 100 COP por transacción | [P] | `economics.yaml: acquirer.processing` |
+| F3-08 | Costos del emisor por producto, en fracción del monto (débito / estándar / premium / comercial): recompensas 0 / 0,4 / 1,2 / 0,8 %; fondeo del período de gracia 0 / 0,20 / 0,25 / 0,30 %; pérdida esperada sobre la compra 0 / 0,30 / 0,15 / 0,10 %; procesamiento 0,10 / 0,15 / 0,20 / 0,20 % | Recompensas [S §1.6: 0,5–1,5 % en premium]; fondeo [S §1.6: 0,1–0,3 %]; procesamiento [S §1.6: 0,1–0,2 %]; pérdida esperada [P] | `economics.yaml: issuer.products` |
+| F3-09 | La contribución del emisor es economía de pagos: no incluye ingresos por intereses, pérdidas de la cartera revolvente (que se financian con intereses) ni costos fijos | [S §1.6: el interchange es lo que hace rentable al tarjetahabiente que paga el total cada mes]; alcance [P] | `pnl.py: IssuerPnL` |
+| F3-10 | Fraude neto: sin contracargo la pérdida es del emisor; con contracargo pasa al comercio (liability shift). Los contracargos por disputas legítimas también los paga el comercio, cuyo costo es MDR + contracargos | [P], sobre los flags de F1-23 y F1-24 | `pnl.py: IssuerPnL, MerchantCost` |
+
+### Métodos
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F3-11 | Revenue bridge: ingreso de la red = volumen × participación de cada región (doméstica o cross-border) × mezcla dentro de la región (producto × grupo × canal) × yield del segmento. El cambio se reparte entre los cuatro factores con valores de Shapley sobre las 16 combinaciones: es exacto y no depende del orden. Un segmento que falta en un período toma el valor del otro | [P], método estándar de atribución | `revenue_bridge.py` |
+| F3-12 | Montos en decimales (float64), no en centavos enteros: la conservación se cumple por construcción con tolerancia relativa de 1e-9 | [P] (decisión de diseño) | `pnl.py` |
+| F3-13 | Las tablas de referencia (`mccs`, `interchange_table`, `network_fees`, `pricing_terms`) se reescriben desde el config antes de cada `dbt build`: cambiar una tarifa no exige regenerar las transacciones | [P] (diseño) | `params.py`, `tasks.py` |
+
+### Resultado de la calibración (datos sintéticos, semilla 20260910)
+
+- **Yield de la red: 28,1 pb del volumen**: 15,0 de assessment, 7,2 de autorización y 5,9
+  cross-border. Las compras cross-border son el 4,7 % del volumen y el 24 % del ingreso de la
+  red.
+- **Referencia (2025):** Visa ingresó ~29 pb de su volumen de pagos netos de incentivos
+  (US$40.000 M sobre US$14 billones) y ~37 pb brutos por servicio, procesamiento y
+  transacciones internacionales, antes de US$15.800 M de incentivos. Mastercard ingresó ~31 pb
+  netos (US$32.800 M sobre US$10,6 billones de GDV) y ~38 pb brutos por la red de pagos, antes
+  de US$20.500 M de rebates e incentivos. Las cifras netas incluyen servicios de valor
+  agregado. El modelo no tiene incentivos ni esos servicios, así que su yield se compara con
+  la cifra bruta y queda por debajo: sus fees domésticos están dentro de los rangos de la spec
+  y el cross-border pesa poco.
+- **De cada 100 COP de MDR:** 69,2 van al emisor, 13,4 a la red y 17,4 al adquirente. Tras
+  costos, el emisor conserva 33,4 (las recompensas se llevan 18,3) y el adquirente 9,8.
+- **Margen bruto del adquirente:** 0,45 % en blended doméstico (0,43–0,47 % por grupo) y
+  0,26 % en IC++. Los bancos, con 63–68 % de su volumen en IC++, quedan en 0,31–0,33 %; los
+  agregadores, en 0,44–0,45 %.
+- **Contribución del emisor:** 0,69 % del volumen en débito y en crédito estándar, 0,52 % en
+  premium (las recompensas se comen la mitad de su interchange) y 1,08 % en comercial.
+
+### Consecuencias a tener presentes
+
+- **Micropagos:** en el tramo reducido (F1-26), el fee de autorización del emisor (40 COP)
+  supera al interchange (0,20 %). El emisor pierde, antes de costos, en ~22 % de las compras
+  con débito y ~14 % de las de crédito estándar. Es un problema de estructura de tarifas que
+  el optimizador podrá mover, con un fee de red reducido para montos pequeños o un fijo en el
+  interchange.
+- **Transporte:** con tickets de ~16.000 COP, el procesamiento fijo (100 COP) deja al
+  adquirente con contribución negativa, aunque su margen bruto está en rango.
+- **Adquirente extranjero:** solo se ve la parte de su negocio con tarjetas colombianas. Aun
+  con el recargo de F3-05, esa parte deja un margen bruto de ~0,10 % y una contribución
+  levemente negativa; su negocio con tarjetas de su país está fuera del modelo.
+- **IC++ frente a blended:** sobre las mismas compras, IC++ sale 0,16–0,19 pp más barato en
+  cada tramo de comercio: la diferencia entre el margen de la tarifa de lista y el negociado.
+- **Sin costos de la red:** su ingreso es bruto; no se modelan sus costos operativos.
+
+### Fuentes
+
+- Visa,
+  [resultados del año fiscal 2025](https://www.sec.gov/Archives/edgar/data/1403161/000140316125000077/q42025earningsrelease.htm)
+  e [informe anual 2025](https://www.sec.gov/Archives/edgar/data/1403161/000130817925000637/v014524-ars.pdf).
+- Mastercard,
+  [resultados de 2025](https://www.sec.gov/Archives/edgar/data/1141391/000114139126000003/ma12312025-exx991xearnings.htm).
+- Tarifas de Visa en EE. UU. (APF, IAF e ISA), resumidas por
+  [CardFellow](https://www.cardfellow.com/blog/acquirer-processing-fee) y el
+  [Tesoro de Nevada](https://www.nevadatreasurer.gov/uploadedFiles/nevadatreasurergov/content/Merch/Forms/CC_Assessment_Fees.pdf).
+- Stripe, [precios públicos](https://stripe.com/pricing): +1,5 % por tarjeta internacional.
 
 ---
 
@@ -140,6 +229,6 @@ reemplazados por F1-01 a F1-29. Siguen vigentes, ahora sobre datos de la Feature
 | # | Supuesto | Origen |
 |---|---|---|
 | F0-04 | Una transacción on-us sigue pagando interchange del rol adquirente al rol emisor, sin neteo por grupo financiero | [P] |
-| F0-13 | Scheme fee cobrado al adquirente y pagado desde el MDR (ahora F1-28) | [S §1.2] |
-| F0-15 | El margen del adquirente es el residuo MDR − interchange − scheme fee; puede ser negativo por transacción | [S §1.5] |
-| F0-16 | "Ingreso" = flujos brutos que salen del MDR; sin costos del emisor ni assessments del lado emisor | Simplificación hasta la Feature 3 |
+| F0-13 | Scheme fee cobrado al adquirente y pagado desde el MDR (ahora el assessment de F3-01) | [S §1.2] |
+| F0-15 | El margen bruto del adquirente es el residuo MDR − interchange − fees de red de su lado; en blended puede ser negativo por transacción y en IC++ es exactamente su margen | [S §1.5] |
+| F0-16 | "Ingreso" = flujos brutos que salen del MDR. Desde la Feature 3 la cascada incluye los fees del lado emisor (F3-02) y la contribución resta los costos operativos (F3-07 a F3-10) | Simplificación hasta la Feature 3 |

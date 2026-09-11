@@ -3,10 +3,10 @@ version: 2
 models:
   - name: fct_transactions
     description: >
-      One row per purchase with the network's fees applied: interchange from the interchange
-      table (macro interchange_lookup), the scheme fee from network_fees and the group's
-      blended MDR. The acquirer keeps the residual. Mirrors
-      ips.economics.simple_pnl.compute_pnl, and a pytest checks both agree row by row.
+      One row per purchase with the network's fee waterfall applied: interchange from the
+      interchange table (macro interchange_lookup), network fees on both sides, the MDR of the
+      merchant's pricing model (blended or IC++) and what each actor keeps. Mirrors
+      ips.economics.pnl.compute_pnl, and a pytest checks both agree row by row.
     columns:
       - name: txn_id
         data_tests: [unique, not_null]
@@ -47,23 +47,36 @@ models:
           - accepted_values:
               arguments:
                 values: ["domestic", "cross_border"]
+      - name: pricing_model
+        description: Blended or IC++, from the merchant.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["blended", "icpp"]
       - name: interchange_cop
         description: Paid by the acquirer to the issuer. Null would mean a missing table cell.
         data_tests: [not_null]
-      - name: scheme_fee_cop
-        description: The network's revenue.
+      - name: network_revenue_cop
+        description: >
+          Fees of both sides: assessment, authorization and cross-border. The network's
+          actual revenue.
         data_tests: [not_null]
       - name: mdr_cop
-        description: What the merchant pays, the group's blended rate times the amount.
+        description: What the merchant pays under its pricing model.
         data_tests: [not_null]
-      - name: acquirer_net_cop
+      - name: issuer_gross_cop
+        description: Interchange minus the issuer's network fees.
+        data_tests: [not_null]
+      - name: acquirer_gross_cop
         description: >
-          MDR minus interchange minus scheme fee. Negative when the blended rate does not
-          cover the card presented (typically premium, card not present or cross-border).
+          MDR minus interchange minus the acquirer's network fees: the IC++ markup, or on
+          blended pricing a residual that turns negative when the flat rate does not cover the
+          card (typically premium, card not present or cross-border).
         data_tests: [not_null]
 
   - name: dim_merchant
-    description: Merchants with their MCC name and sector margin.
+    description: Merchants with their MCC name, pricing model and sector margin.
     columns:
       - name: merchant_id
         data_tests: [unique, not_null]

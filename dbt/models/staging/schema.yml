@@ -23,6 +23,14 @@ models:
     columns:
       - name: merchant_id
         data_tests: [unique, not_null]
+      - name: pricing_model
+        description: >
+          How the merchant pays: blended (flat rate of its group) or IC++ (interchange and
+          network fees passed through, plus the acquirer's markup).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ["blended", "icpp"]
       - name: sector_margin
         description: Net margin of the merchant's sector, the base of the relative burden.
         data_tests: [not_null]
@@ -51,7 +59,7 @@ models:
       - name: mcc
         data_tests: [unique, not_null]
       - name: blended_mdr_rate
-        description: Flat rate merchants of the group pay, whatever card is presented.
+        description: Flat rate merchants of the group pay on blended pricing.
         data_tests: [not_null]
 
   - name: stg_interchange_table
@@ -66,7 +74,19 @@ models:
         data_tests: [not_null]
 
   - name: stg_network_fees
-    description: The scheme fee, a single row.
+    description: The network's fee schedule for issuers and acquirers, a single row.
     columns:
-      - name: scheme_fee_rate
+      - name: acquirer_assessment_rate
+        data_tests: [not_null]
+      - name: issuer_assessment_rate
+        data_tests: [not_null]
+
+  - name: stg_pricing_terms
+    description: IC++ markup and blended surcharge on foreign cards of each acquirer.
+    columns:
+      - name: acquirer_id
+        data_tests: [unique, not_null]
+      - name: icpp_markup_rate
+        data_tests: [not_null]
+      - name: blended_cross_border_rate
         data_tests: [not_null]

@@ -1,5 +1,6 @@
--- P&L de cada actor que recibe una parte del MDR, por mes, producto y grupo de MCC:
--- el emisor cobra el interchange, la red el scheme fee y el adquirente el residuo.
+-- Ingreso bruto de cada actor que recibe una parte del MDR, por mes, producto y grupo de
+-- MCC: el emisor se queda el interchange neto de sus fees de red, la red cobra los fees de
+-- ambos lados y el adquirente se queda el residuo.
 with fct as (
     select * from {{ ref('fct_transactions') }}
 ),
@@ -12,13 +13,13 @@ receivers as (
         product,
         mcc_group,
         amount_cop,
-        interchange_cop as revenue_cop
+        issuer_gross_cop as revenue_cop
     from fct
     union all
-    select txn_month, 'acquirer', acquirer_id, product, mcc_group, amount_cop, acquirer_net_cop
+    select txn_month, 'acquirer', acquirer_id, product, mcc_group, amount_cop, acquirer_gross_cop
     from fct
     union all
-    select txn_month, 'network', 'NETWORK', product, mcc_group, amount_cop, scheme_fee_cop
+    select txn_month, 'network', 'NETWORK', product, mcc_group, amount_cop, network_revenue_cop
     from fct
 )
 

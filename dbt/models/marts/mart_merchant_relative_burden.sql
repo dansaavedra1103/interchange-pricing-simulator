@@ -18,6 +18,7 @@ select
     m.city,
     m.size_tier,
     m.acquirer_id,
+    m.pricing_model,
     v.n_txns,
     v.gdv_cop,
     v.mdr_cop,
