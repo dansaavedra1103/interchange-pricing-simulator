@@ -1,0 +1,86 @@
+# Tabla de interchange inicial de la red (Feature 1). La red la fija; el adquirente se la
+# paga al emisor. Tasas en fracción decimal (0.004 = 0,40 %); montos fijos en COP.
+# Rangos inspirados en tablas públicas (spec §2.3): débito 0,3-0,5 % en categorías
+# reducidas, crédito 1,2-2,2 %, premium hasta 2,5-3 % en no presente. Los valores de cada
+# celda son [P] supuesto propio: pendiente contrastar con las tablas que Mastercard y
+# Redeban publican en Colombia por el Decreto 1692 de 2020.
+
+version: "2024-01"
+valid_from: 2024-01-01
+valid_to: null
+
+# Grilla base: tarjeta presente (cp), transacción doméstica. Producto × grupo de MCC.
+# Orden en cada grupo: débito < crédito estándar < premium <= comercial (spec §1.4).
+base:
+  debit:
+    grocery: {rate: 0.0040, fixed_cop: 0}
+    fuel: {rate: 0.0030, fixed_cop: 0}
+    utilities_telecom: {rate: 0.0035, fixed_cop: 0}
+    restaurants: {rate: 0.0090, fixed_cop: 0}
+    health: {rate: 0.0060, fixed_cop: 0}
+    retail: {rate: 0.0100, fixed_cop: 0}
+    home_electronics: {rate: 0.0100, fixed_cop: 0}
+    travel: {rate: 0.0110, fixed_cop: 0}
+    transport: {rate: 0.0045, fixed_cop: 0}
+    digital: {rate: 0.0100, fixed_cop: 0}
+    education: {rate: 0.0040, fixed_cop: 0}
+    entertainment: {rate: 0.0090, fixed_cop: 0}
+  credit_standard:
+    grocery: {rate: 0.0120, fixed_cop: 100}
+    fuel: {rate: 0.0120, fixed_cop: 100}
+    utilities_telecom: {rate: 0.0120, fixed_cop: 100}
+    restaurants: {rate: 0.0170, fixed_cop: 100}
+    health: {rate: 0.0150, fixed_cop: 100}
+    retail: {rate: 0.0180, fixed_cop: 100}
+    home_electronics: {rate: 0.0180, fixed_cop: 100}
+    travel: {rate: 0.0200, fixed_cop: 100}
+    transport: {rate: 0.0130, fixed_cop: 100}
+    digital: {rate: 0.0180, fixed_cop: 100}
+    education: {rate: 0.0120, fixed_cop: 100}
+    entertainment: {rate: 0.0170, fixed_cop: 100}
+  credit_premium:
+    grocery: {rate: 0.0160, fixed_cop: 150}
+    fuel: {rate: 0.0150, fixed_cop: 150}
+    utilities_telecom: {rate: 0.0150, fixed_cop: 150}
+    restaurants: {rate: 0.0220, fixed_cop: 150}
+    health: {rate: 0.0190, fixed_cop: 150}
+    retail: {rate: 0.0230, fixed_cop: 150}
+    home_electronics: {rate: 0.0220, fixed_cop: 150}
+    travel: {rate: 0.0250, fixed_cop: 150}
+    transport: {rate: 0.0170, fixed_cop: 150}
+    digital: {rate: 0.0230, fixed_cop: 150}
+    education: {rate: 0.0150, fixed_cop: 150}
+    entertainment: {rate: 0.0220, fixed_cop: 150}
+  commercial:
+    grocery: {rate: 0.0170, fixed_cop: 200}
+    fuel: {rate: 0.0160, fixed_cop: 200}
+    utilities_telecom: {rate: 0.0160, fixed_cop: 200}
+    restaurants: {rate: 0.0230, fixed_cop: 200}
+    health: {rate: 0.0200, fixed_cop: 200}
+    retail: {rate: 0.0240, fixed_cop: 200}
+    home_electronics: {rate: 0.0240, fixed_cop: 200}
+    travel: {rate: 0.0260, fixed_cop: 200}
+    transport: {rate: 0.0180, fixed_cop: 200}
+    digital: {rate: 0.0240, fixed_cop: 200}
+    education: {rate: 0.0160, fixed_cop: 200}
+    entertainment: {rate: 0.0230, fixed_cop: 200}
+
+# Recargos sobre la grilla base: no presente (más fraude) y cross-border (spec §1.4).
+adjustments:
+  channel:
+    cnp: {rate_add: 0.0030, fixed_add_cop: 0}
+  region:
+    cross_border: {rate_add: 0.0080, fixed_add_cop: 0}
+
+# Tarifa especial para micropagos domésticos: en montos pequeños el fijo domina y el
+# porcentaje efectivo se dispara, por eso existe un tramo reducido (spec §1.4).
+small_ticket:
+  max_amount_cop: 20000
+  products: [debit, credit_standard]
+  groups: [grocery, transport, restaurants]
+  rate: 0.0020
+  fixed_cop: 0
+
+# Celdas puntuales que reemplazan el resultado de base + recargos.
+# Formato: {product, mcc_group, channel, region, rate, fixed_cop}
+overrides: []

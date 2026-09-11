@@ -18,7 +18,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "igraph>=0.11",
     "ipykernel>=6.29",
+    "matplotlib>=3.8",
     "nbclient>=0.10",
     "nbformat>=5.9",
     "pytest>=8.0",
@@ -31,7 +33,8 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
-addopts = "-ra"
+addopts = "-ra -m 'not slow'"
+markers = ["slow: full-scale generation checks, run with `pytest -m slow`"]
 filterwarnings = [
     # pyzmq on Windows (Proactor event loop) warns when the notebook kernel starts; harmless.
     "ignore:Proactor event loop does not implement add_reader:RuntimeWarning",

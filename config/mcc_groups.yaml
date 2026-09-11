@@ -1,0 +1,74 @@
+# Grupos de MCC y parámetros por MCC (Feature 1). Datos sintéticos: cada valor está
+# documentado en docs/assumptions.md como [D] dato público, [L] literatura, [S] spec o
+# [P] supuesto propio. Tasas en fracción decimal (0.03 = 3 %).
+
+# Parámetros por grupo:
+#   sector_margin: margen neto típico del sector; base de la carga relativa (MDR / margen).
+#   base_elasticity: sensibilidad relativa de la aceptación a la carga (1 = promedio). Feature 5.
+#   blended_mdr_rate: tarifa plana de lista al comercio, usada por el P&L transitorio.
+#   online_share: probabilidad de que una compra del grupo sea no presente (online).
+#   weekday_profile: perfil de actividad lunes..domingo (ver weekday_profiles).
+#   fraud_risk: multiplicador del riesgo de fraude del grupo (1 = promedio).
+#   dispute_rate: probabilidad de contracargo en una transacción legítima.
+#   El blended_mdr_rate está calibrado como costo del grupo (interchange + scheme fee sobre
+#   el volumen) más ~0,45 pp, para que el margen del adquirente quede en 0,2-0,7 % (spec §1.6).
+groups:
+  grocery: {sector_margin: 0.03, base_elasticity: 1.5, blended_mdr_rate: 0.0140, online_share: 0.04, weekday_profile: weekend_shopping, fraud_risk: 0.8, dispute_rate: 0.0002}
+  fuel: {sector_margin: 0.03, base_elasticity: 1.5, blended_mdr_rate: 0.0150, online_share: 0.0, weekday_profile: flat, fraud_risk: 1.2, dispute_rate: 0.0002}
+  utilities_telecom: {sector_margin: 0.10, base_elasticity: 0.8, blended_mdr_rate: 0.0160, online_share: 0.55, weekday_profile: weekday_business, fraud_risk: 0.6, dispute_rate: 0.0003}
+  restaurants: {sector_margin: 0.08, base_elasticity: 1.2, blended_mdr_rate: 0.0210, online_share: 0.12, weekday_profile: nightlife, fraud_risk: 1.0, dispute_rate: 0.0004}
+  health: {sector_margin: 0.10, base_elasticity: 0.7, blended_mdr_rate: 0.0170, online_share: 0.06, weekday_profile: flat, fraud_risk: 0.8, dispute_rate: 0.0003}
+  retail: {sector_margin: 0.12, base_elasticity: 1.0, blended_mdr_rate: 0.0230, online_share: 0.15, weekday_profile: weekend_shopping, fraud_risk: 1.0, dispute_rate: 0.0006}
+  home_electronics: {sector_margin: 0.08, base_elasticity: 1.0, blended_mdr_rate: 0.0220, online_share: 0.25, weekday_profile: weekend_shopping, fraud_risk: 1.5, dispute_rate: 0.0008}
+  travel: {sector_margin: 0.06, base_elasticity: 0.9, blended_mdr_rate: 0.0290, online_share: 0.60, weekday_profile: flat, fraud_risk: 1.8, dispute_rate: 0.0030}
+  transport: {sector_margin: 0.07, base_elasticity: 1.3, blended_mdr_rate: 0.0160, online_share: 0.35, weekday_profile: weekday_business, fraud_risk: 1.0, dispute_rate: 0.0005}
+  digital: {sector_margin: 0.20, base_elasticity: 0.6, blended_mdr_rate: 0.0250, online_share: 1.0, weekday_profile: flat, fraud_risk: 2.0, dispute_rate: 0.0025}
+  education: {sector_margin: 0.15, base_elasticity: 0.5, blended_mdr_rate: 0.0140, online_share: 0.30, weekday_profile: weekday_business, fraud_risk: 0.5, dispute_rate: 0.0002}
+  entertainment: {sector_margin: 0.10, base_elasticity: 1.1, blended_mdr_rate: 0.0210, online_share: 0.25, weekday_profile: weekend_leisure, fraud_risk: 1.0, dispute_rate: 0.0008}
+
+# Multiplicadores de actividad por día de la semana, de lunes a domingo.
+weekday_profiles:
+  flat: [1.00, 1.00, 1.00, 1.00, 1.00, 1.00, 1.00]
+  weekend_shopping: [0.90, 0.90, 0.95, 1.00, 1.10, 1.30, 1.05]
+  nightlife: [0.75, 0.80, 0.85, 1.00, 1.35, 1.45, 1.00]
+  weekend_leisure: [0.70, 0.70, 0.75, 0.85, 1.20, 1.60, 1.50]
+  weekday_business: [1.10, 1.10, 1.10, 1.10, 1.05, 0.70, 0.55]
+
+# merchant_share: fracción de los comercios domésticos en el MCC (retail y alimentos dominan;
+# bares y restaurantes 5812 + 5813 = 5,3 %, como en la red de Credibanco).
+# median_ticket_cop / ticket_sigma: monto log-normal por MCC (mediana y dispersión en log).
+# channel_mix: fracción de comercios del MCC que venden solo presente, solo online o ambos.
+mccs:
+  - {mcc: "5411", name: supermarkets, group: grocery, merchant_share: 0.080, median_ticket_cop: 65000, ticket_sigma: 0.8, channel_mix: {cp: 0.85, cnp: 0.02, mixed: 0.13}}
+  - {mcc: "5499", name: food_stores, group: grocery, merchant_share: 0.140, median_ticket_cop: 22000, ticket_sigma: 0.7, channel_mix: {cp: 0.97, cnp: 0.00, mixed: 0.03}}
+  - {mcc: "5541", name: service_stations, group: fuel, merchant_share: 0.025, median_ticket_cop: 75000, ticket_sigma: 0.5, channel_mix: {cp: 1.00, cnp: 0.00, mixed: 0.00}}
+  - {mcc: "5542", name: automated_fuel, group: fuel, merchant_share: 0.005, median_ticket_cop: 70000, ticket_sigma: 0.5, channel_mix: {cp: 1.00, cnp: 0.00, mixed: 0.00}}
+  - {mcc: "4900", name: utilities, group: utilities_telecom, merchant_share: 0.008, median_ticket_cop: 140000, ticket_sigma: 0.6, channel_mix: {cp: 0.20, cnp: 0.50, mixed: 0.30}}
+  - {mcc: "4814", name: telecom, group: utilities_telecom, merchant_share: 0.012, median_ticket_cop: 85000, ticket_sigma: 0.5, channel_mix: {cp: 0.30, cnp: 0.30, mixed: 0.40}}
+  - {mcc: "5812", name: restaurants, group: restaurants, merchant_share: 0.043, median_ticket_cop: 70000, ticket_sigma: 0.7, channel_mix: {cp: 0.80, cnp: 0.00, mixed: 0.20}}
+  - {mcc: "5813", name: bars, group: restaurants, merchant_share: 0.010, median_ticket_cop: 90000, ticket_sigma: 0.8, channel_mix: {cp: 0.95, cnp: 0.00, mixed: 0.05}}
+  - {mcc: "5814", name: fast_food, group: restaurants, merchant_share: 0.047, median_ticket_cop: 28000, ticket_sigma: 0.6, channel_mix: {cp: 0.75, cnp: 0.00, mixed: 0.25}}
+  - {mcc: "5912", name: drugstores, group: health, merchant_share: 0.050, median_ticket_cop: 45000, ticket_sigma: 0.8, channel_mix: {cp: 0.85, cnp: 0.00, mixed: 0.15}}
+  - {mcc: "8011", name: doctors, group: health, merchant_share: 0.025, median_ticket_cop: 130000, ticket_sigma: 0.7, channel_mix: {cp: 0.90, cnp: 0.00, mixed: 0.10}}
+  - {mcc: "8062", name: hospitals, group: health, merchant_share: 0.005, median_ticket_cop: 400000, ticket_sigma: 1.0, channel_mix: {cp: 0.90, cnp: 0.00, mixed: 0.10}}
+  - {mcc: "5311", name: department_stores, group: retail, merchant_share: 0.010, median_ticket_cop: 190000, ticket_sigma: 0.9, channel_mix: {cp: 0.50, cnp: 0.00, mixed: 0.50}}
+  - {mcc: "5651", name: apparel, group: retail, merchant_share: 0.080, median_ticket_cop: 160000, ticket_sigma: 0.8, channel_mix: {cp: 0.70, cnp: 0.05, mixed: 0.25}}
+  - {mcc: "5661", name: shoes, group: retail, merchant_share: 0.040, median_ticket_cop: 180000, ticket_sigma: 0.7, channel_mix: {cp: 0.75, cnp: 0.05, mixed: 0.20}}
+  - {mcc: "5999", name: misc_retail, group: retail, merchant_share: 0.150, median_ticket_cop: 70000, ticket_sigma: 0.9, channel_mix: {cp: 0.75, cnp: 0.10, mixed: 0.15}}
+  - {mcc: "5712", name: furniture, group: home_electronics, merchant_share: 0.020, median_ticket_cop: 850000, ticket_sigma: 0.9, channel_mix: {cp: 0.70, cnp: 0.00, mixed: 0.30}}
+  - {mcc: "5732", name: electronics, group: home_electronics, merchant_share: 0.030, median_ticket_cop: 650000, ticket_sigma: 1.0, channel_mix: {cp: 0.50, cnp: 0.10, mixed: 0.40}}
+  - {mcc: "5251", name: hardware, group: home_electronics, merchant_share: 0.020, median_ticket_cop: 120000, ticket_sigma: 0.9, channel_mix: {cp: 0.85, cnp: 0.00, mixed: 0.15}}
+  - {mcc: "4511", name: airlines, group: travel, merchant_share: 0.002, median_ticket_cop: 600000, ticket_sigma: 0.7, channel_mix: {cp: 0.00, cnp: 0.50, mixed: 0.50}}
+  - {mcc: "4722", name: travel_agencies, group: travel, merchant_share: 0.013, median_ticket_cop: 1100000, ticket_sigma: 0.8, channel_mix: {cp: 0.30, cnp: 0.30, mixed: 0.40}}
+  - {mcc: "7011", name: hotels, group: travel, merchant_share: 0.015, median_ticket_cop: 450000, ticket_sigma: 0.8, channel_mix: {cp: 0.50, cnp: 0.00, mixed: 0.50}}
+  - {mcc: "4111", name: public_transport, group: transport, merchant_share: 0.005, median_ticket_cop: 6000, ticket_sigma: 0.4, channel_mix: {cp: 0.80, cnp: 0.00, mixed: 0.20}}
+  - {mcc: "4121", name: taxis_rideshare, group: transport, merchant_share: 0.035, median_ticket_cop: 20000, ticket_sigma: 0.5, channel_mix: {cp: 0.40, cnp: 0.40, mixed: 0.20}}
+  - {mcc: "7523", name: parking, group: transport, merchant_share: 0.010, median_ticket_cop: 10000, ticket_sigma: 0.5, channel_mix: {cp: 0.90, cnp: 0.00, mixed: 0.10}}
+  - {mcc: "5815", name: digital_media, group: digital, merchant_share: 0.008, median_ticket_cop: 30000, ticket_sigma: 0.4, channel_mix: {cp: 0.00, cnp: 1.00, mixed: 0.00}}
+  - {mcc: "5816", name: digital_games, group: digital, merchant_share: 0.006, median_ticket_cop: 40000, ticket_sigma: 0.8, channel_mix: {cp: 0.00, cnp: 1.00, mixed: 0.00}}
+  - {mcc: "5818", name: digital_goods, group: digital, merchant_share: 0.006, median_ticket_cop: 60000, ticket_sigma: 0.8, channel_mix: {cp: 0.00, cnp: 1.00, mixed: 0.00}}
+  - {mcc: "5964", name: ecommerce_catalog, group: digital, merchant_share: 0.020, median_ticket_cop: 140000, ticket_sigma: 0.9, channel_mix: {cp: 0.00, cnp: 1.00, mixed: 0.00}}
+  - {mcc: "8211", name: schools, group: education, merchant_share: 0.015, median_ticket_cop: 700000, ticket_sigma: 0.7, channel_mix: {cp: 0.50, cnp: 0.20, mixed: 0.30}}
+  - {mcc: "8220", name: universities, group: education, merchant_share: 0.015, median_ticket_cop: 1400000, ticket_sigma: 0.6, channel_mix: {cp: 0.30, cnp: 0.30, mixed: 0.40}}
+  - {mcc: "7832", name: cinemas, group: entertainment, merchant_share: 0.010, median_ticket_cop: 35000, ticket_sigma: 0.5, channel_mix: {cp: 0.60, cnp: 0.00, mixed: 0.40}}
+  - {mcc: "7999", name: recreation, group: entertainment, merchant_share: 0.040, median_ticket_cop: 80000, ticket_sigma: 0.8, channel_mix: {cp: 0.80, cnp: 0.00, mixed: 0.20}}
