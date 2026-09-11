@@ -16,7 +16,7 @@ from ips.utils.config import ProjectConfig, default_config_path, load_config, re
 def raw_config() -> dict[str, Any]:
     """The three YAML files merged as ``load_config`` does, as a mutable dict."""
     data = yaml.safe_load(default_config_path().read_text(encoding="utf-8"))
-    for key in ("mcc_groups", "interchange_table"):
+    for key in ("mcc_groups", "interchange_table", "economics"):
         path = resolve_path(Path(data["includes"][key]))
         data[key] = yaml.safe_load(path.read_text(encoding="utf-8"))
     return data
@@ -74,6 +74,15 @@ CASES = {
         "sells online",
     ),
     "reversed_dates": (_set(["dates", "end"], "2023-01-01"), "must be before"),
+    "issuer_costs_missing_product": (
+        _delete(["economics", "issuer", "products", "debit"]),
+        "economics.issuer.products must cover",
+    ),
+    "network_fee_in_percent": (
+        _set(["economics", "network", "acquirer", "assessment_rate"], 0.13),
+        "less than 0.1",
+    ),
+    "unknown_icpp_tier": (_set(["merchants", "icpp_tiers"], ["huge"]), "icpp_tiers"),
     "small_ticket_product": (
         _set(["interchange_table", "small_ticket", "products"], ["prepaid"]),
         "small_ticket.products",

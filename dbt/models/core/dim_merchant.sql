@@ -9,6 +9,7 @@ select
     m.size_tier,
     m.size_weight,
     m.acquirer_id,
+    m.pricing_model,
     m.sector_margin
 from {{ ref('stg_merchants') }} as m
 left join {{ ref('stg_mccs') }} as mc

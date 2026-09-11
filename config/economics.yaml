@@ -1,0 +1,40 @@
+# Parámetros económicos por actor y producto (Feature 3). Tasas en fracción del monto de la
+# compra (0.0013 = 0,13 %); montos fijos en COP por transacción. Cada valor está documentado
+# en docs/assumptions.md como [L] literatura, [S] spec o [P] supuesto propio.
+
+# Fees que la red cobra a cada lado de la transacción: son su ingreso real (spec §1.6).
+network:
+  issuer:
+    # Con el del adquirente, los assessments de ambos lados suman 0,15 % del volumen: el techo
+    # del rango de la spec.
+    assessment_rate: 0.0002        # [S §1.6: 0,10-0,15 % entre ambos lados] [P reparto]
+    authorization_fee_cop: 40      # [P] la mitad del fee del adquirente
+    # Del orden del ISA de Visa (0,80 %), que en EE. UU. paga el adquirente; aquí lo paga el
+    # emisor, que en la práctica lo traslada al tarjetahabiente (fuera del modelo).
+    cross_border_rate: 0.008       # [L: Visa ISA 0,80 %] [P lado]
+  acquirer:
+    assessment_rate: 0.0013        # [S §1.2: 0,13 %]
+    authorization_fee_cop: 80      # [L: Visa APF US$0,0195 en crédito]
+    cross_border_rate: 0.0045      # [L: Visa IAF 0,45 %]
+
+acquirer:
+  # Margen que los adquirentes bancarios cobran en IC++ sobre interchange y fees de red. Los
+  # comercios grandes y medianos lo negocian delgado: ~0,26 % del monto, en el extremo bajo
+  # del rango de margen del adquirente (spec §1.6: 0,2-0,7 %).
+  icpp_markup: {rate: 0.0020, fixed_cop: 100}   # [P]
+  # Recargo de la tarifa blended cuando la tarjeta es extranjera para el comercio: los
+  # comercios del exterior pagan su tarifa de lista más este recargo por las tarjetas
+  # colombianas. Sin él, su adquirente absorbería el interchange y los fees cross-border.
+  blended_cross_border_surcharge: 0.015         # [L: Stripe, +1,5 % por tarjeta internacional]
+  # Costo de procesar cada transacción (plataforma, liquidación, soporte).
+  processing: {rate: 0.0010, fixed_cop: 100}    # [P]
+
+# Costos del emisor por producto, en fracción del monto. Es la economía de pagos: sin
+# intereses ni pérdidas de cartera revolvente, que se financian con intereses (spec §1.6: el
+# interchange es lo que hace rentable al cliente que paga todo cada mes).
+issuer:
+  products:
+    debit: {rewards_rate: 0.0, funding_rate: 0.0, credit_loss_rate: 0.0, processing_rate: 0.0010}
+    credit_standard: {rewards_rate: 0.004, funding_rate: 0.0020, credit_loss_rate: 0.0030, processing_rate: 0.0015}
+    credit_premium: {rewards_rate: 0.012, funding_rate: 0.0025, credit_loss_rate: 0.0015, processing_rate: 0.0020}
+    commercial: {rewards_rate: 0.008, funding_rate: 0.0030, credit_loss_rate: 0.0010, processing_rate: 0.0020}

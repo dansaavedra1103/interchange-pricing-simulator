@@ -138,6 +138,7 @@ class Includes(_Frozen):
 
     mcc_groups: Path
     interchange_table: Path
+    economics: Path
 
 
 class Fee(_Frozen):
@@ -147,10 +148,54 @@ class Fee(_Frozen):
     fixed_cop: float = Field(default=0.0, ge=0.0)
 
 
-class NetworkConfig(_Frozen):
-    """Fees the network charges out of the MDR."""
+class SideFees(_Frozen):
+    """Fees the network charges one side of a transaction."""
 
-    scheme_fee: Fee
+    assessment_rate: Rate
+    authorization_fee_cop: float = Field(ge=0.0)
+    cross_border_rate: Rate
+
+
+class NetworkFeesConfig(_Frozen):
+    """The network's fee schedule for issuers and acquirers."""
+
+    issuer: SideFees
+    acquirer: SideFees
+
+
+class AcquirerEconomics(_Frozen):
+    """Pricing terms and processing cost of the acquirers.
+
+    ``blended_cross_border_surcharge`` is added to the blended rate when the card is foreign
+    to the merchant (a cross-border purchase).
+    """
+
+    icpp_markup: Fee
+    blended_cross_border_surcharge: Rate
+    processing: Fee
+
+
+class IssuerProductCosts(_Frozen):
+    """Costs of running a card of one product, as fractions of the purchase amount."""
+
+    rewards_rate: Rate
+    funding_rate: Rate
+    credit_loss_rate: Rate
+    processing_rate: Rate
+
+
+class IssuerEconomics(_Frozen):
+    """Issuer costs by card product."""
+
+    products: dict[str, IssuerProductCosts]
+
+
+class EconomicsConfig(_Frozen):
+    """Contents of ``config/economics.yaml``."""
+
+    network: NetworkFeesConfig
+    acquirer: AcquirerEconomics
+    issuer: IssuerEconomics
 
 
 class GeographyConfig(_Frozen):
@@ -219,6 +264,7 @@ class MerchantConfig(_Frozen):
     size_sigma: Positive
     size_tiers: dict[SizeTier, Share]
     sector_margin_sigma: float = Field(ge=0.0)
+    icpp_tiers: tuple[SizeTier, ...] = Field(min_length=1)
 
 
 class AcquirerConfig(_Frozen):
@@ -405,13 +451,6 @@ class InterchangeTableConfig(_Frozen):
         return self
 
 
-class PricingConfig(_Frozen):
-    """Merchant-side prices used by the transitional P&L."""
-
-    scheme_fee: Fee
-    blended_mdr_rate: dict[str, Rate]
-
-
 # ---------------------------------------------------------------------------
 # Root
 # ---------------------------------------------------------------------------
@@ -427,7 +466,6 @@ class ProjectConfig(_Frozen):
     output: OutputConfig
     includes: Includes
     products: tuple[str, ...] = Field(min_length=1)
-    network: NetworkConfig
     geography: GeographyConfig
     issuers: tuple[IssuerConfig, ...] = Field(min_length=1)
     product_mix: dict[str, dict[str, Share]]
@@ -443,6 +481,7 @@ class ProjectConfig(_Frozen):
     fraud: FraudConfig
     mcc_groups: MccGroupsConfig
     interchange_table: InterchangeTableConfig
+    economics: EconomicsConfig
 
     @property
     def group_names(self) -> tuple[str, ...]:
@@ -453,16 +492,6 @@ class ProjectConfig(_Frozen):
     def mcc_codes(self) -> tuple[str, ...]:
         """MCC codes in configuration order."""
         return tuple(m.mcc for m in self.mcc_groups.mccs)
-
-    @property
-    def pricing(self) -> PricingConfig:
-        """Scheme fee and blended MDR by group, for the transitional P&L."""
-        return PricingConfig(
-            scheme_fee=self.network.scheme_fee,
-            blended_mdr_rate={
-                name: group.blended_mdr_rate for name, group in self.mcc_groups.groups.items()
-            },
-        )
 
     @model_validator(mode="after")
     def _check_consistency(self) -> ProjectConfig:
@@ -524,6 +553,8 @@ class ProjectConfig(_Frozen):
         for override in table.overrides:
             _check_subset([override.product], products, "override product")
             _check_subset([override.mcc_group], groups, "override mcc_group")
+
+        _check_same_keys(self.economics.issuer.products, products, "economics.issuer.products")
         return self
 
 
@@ -539,4 +570,5 @@ def load_config(path: Path | None = None) -> ProjectConfig:
     includes = Includes.model_validate(data.get("includes", {}))
     data["mcc_groups"] = _read_yaml(resolve_path(includes.mcc_groups))
     data["interchange_table"] = _read_yaml(resolve_path(includes.interchange_table))
+    data["economics"] = _read_yaml(resolve_path(includes.economics))
     return ProjectConfig.model_validate(data)

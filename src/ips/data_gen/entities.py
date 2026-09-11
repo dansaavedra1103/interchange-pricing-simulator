@@ -23,6 +23,8 @@ from ips.utils.config import (
     ProjectConfig,
 )
 
+PRICING_MODELS = ("blended", "icpp")
+
 
 class _Row(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -61,6 +63,7 @@ class Merchant(_Row):
     size_tier: Literal["large", "medium", "small", "micro"]
     size_weight: float = Field(gt=0.0)
     acquirer_id: str
+    pricing_model: Literal["blended", "icpp"]
     sector_margin: float = Field(gt=0.0, lt=1.0)
 
 
@@ -118,6 +121,7 @@ def enum_dtypes(cfg: ProjectConfig) -> dict[str, pl.Enum]:
         "channel": pl.Enum(list(CHANNELS)),
         "merchant_channel": pl.Enum(list(MERCHANT_CHANNELS)),
         "size_tier": pl.Enum(list(SIZE_TIERS)),
+        "pricing_model": pl.Enum(list(PRICING_MODELS)),
         "spend_segment": pl.Enum(list(SPEND_SEGMENTS)),
         "city": pl.Enum([*cfg.geography.cities, OTHER_CITIES]),
     }
@@ -157,6 +161,7 @@ def table_schemas(cfg: ProjectConfig) -> dict[str, pl.Schema]:
                 "size_tier": e["size_tier"],
                 "size_weight": pl.Float64,
                 "acquirer_id": e["acquirer_id"],
+                "pricing_model": e["pricing_model"],
                 "sector_margin": pl.Float64,
             }
         ),

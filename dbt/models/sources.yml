@@ -23,4 +23,10 @@ sources:
       - name: interchange_table
         description: Expanded interchange grid, product x MCC group x channel x region.
       - name: network_fees
-        description: Scheme fee the network charges the acquirer, from config/base.yaml.
+        description: >
+          The network's fee schedule for both sides (assessment, authorization and
+          cross-border), from config/economics.yaml.
+      - name: pricing_terms
+        description: >
+          Pricing terms of each acquirer (IC++ markup and blended surcharge on foreign
+          cards), from config/economics.yaml.

@@ -32,12 +32,9 @@ output:
 includes:
   mcc_groups: config/mcc_groups.yaml
   interchange_table: config/interchange_table.yaml
+  economics: config/economics.yaml
 
 products: [debit, credit_standard, credit_premium, commercial]
-
-network:
-  # Scheme fee que la red cobra al adquirente, pagado desde el MDR (spec §1.2).
-  scheme_fee: {rate: 0.0013, fixed_cop: 0}
 
 geography:
   country: CO
@@ -124,6 +121,9 @@ merchants:
   size_sigma: 1.2
   # Fracción de comercios en cada tramo, de mayor a menor peso de volumen.
   size_tiers: {large: 0.01, medium: 0.09, small: 0.30, micro: 0.60}
+  # Tramos a los que los adquirentes bancarios (pricing_model mixed) cobran IC++; el resto de
+  # sus comercios paga blended (spec §1.5).
+  icpp_tiers: [large, medium]
   # Heterogeneidad del margen dentro del grupo: margen = margen del grupo x LogNormal(0, sigma).
   sector_margin_sigma: 0.25
 

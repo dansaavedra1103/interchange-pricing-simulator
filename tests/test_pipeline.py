@@ -11,7 +11,7 @@ import pytest
 from ips.data_gen.diagnostics import edge_list
 from ips.data_gen.generate import GeneratedData, write_outputs
 from ips.data_gen.interchange_table import build_interchange_table
-from ips.economics.simple_pnl import MONEY_COLUMNS, PnLResult, compute_pnl
+from ips.economics.pnl import NETWORK_DRIVER_COLUMNS, WATERFALL_COLUMNS, PnLResult, compute_pnl
 from ips.utils.config import ProjectConfig
 from ips.utils.io import read_table, run_dbt
 
@@ -38,17 +38,23 @@ def warehouse(
 
 
 @pytest.fixture(scope="module")
-def python_pnl(cfg: ProjectConfig, transactions: pl.DataFrame) -> PnLResult:
-    return compute_pnl(transactions, build_interchange_table(cfg), cfg.pricing)
+def python_pnl(cfg: ProjectConfig, data: GeneratedData) -> PnLResult:
+    return compute_pnl(
+        data.tables["transactions"],
+        build_interchange_table(cfg),
+        cfg,
+        merchants=data.tables["merchants"],
+    )
 
 
 def test_fct_matches_python_row_by_row(warehouse: Path, python_pnl: PnLResult) -> None:
-    # La misma tabla aplicada en SQL y en Python da el mismo P&L en cada transacción.
+    # La misma cascada de tarifas en SQL y en Python da lo mismo en cada transacción.
     fct = read_table("fct_transactions", warehouse).sort("txn_id")
     python = python_pnl.transactions.sort("txn_id")
     assert fct.height == python.height
     assert (fct["txn_id"] == python["txn_id"]).all()
-    for column in MONEY_COLUMNS:
+    assert (fct["pricing_model"] == python["pricing_model"].cast(pl.Utf8)).all()
+    for column in WATERFALL_COLUMNS + NETWORK_DRIVER_COLUMNS:
         np.testing.assert_allclose(
             fct[column].to_numpy(), python[column].to_numpy(), rtol=1e-9, atol=1e-6, err_msg=column
         )
@@ -62,7 +68,7 @@ def test_marts_add_up_to_the_fct(warehouse: Path) -> None:
     for mart in ("mart_effective_interchange", "mart_merchant_relative_burden"):
         assert read_table(mart, warehouse)["mdr_cop"].sum() == pytest.approx(mdr, rel=1e-9), mart
     network = pnl.filter(pl.col("actor_type") == "network")["revenue_cop"].sum()
-    assert network == pytest.approx(fct["scheme_fee_cop"].sum(), rel=1e-9)
+    assert network == pytest.approx(fct["network_revenue_cop"].sum(), rel=1e-9)
 
 
 def test_graph_edges_match_diagnostics(warehouse: Path, transactions: pl.DataFrame) -> None:

@@ -8,5 +8,6 @@ select
     size_tier,
     size_weight,
     acquirer_id,
+    pricing_model,
     sector_margin
 from {{ source('raw', 'merchants') }}

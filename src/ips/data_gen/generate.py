@@ -21,9 +21,8 @@ import numpy as np
 import polars as pl
 
 from ips.data_gen.affinity import AffinitySampler, draw_favorites
-from ips.data_gen.entities import enum_dtypes, table_schemas
+from ips.data_gen.entities import table_schemas
 from ips.data_gen.fraud import add_fraud_flags
-from ips.data_gen.interchange_table import build_interchange_table
 from ips.data_gen.population import (
     build_acquirers,
     build_issuers,
@@ -31,6 +30,7 @@ from ips.data_gen.population import (
     draw_merchants,
 )
 from ips.data_gen.transactions import generate_transactions
+from ips.economics.params import reference_tables
 from ips.utils.config import ProjectConfig, default_config_path, load_config, resolve_path
 from ips.utils.logging import get_logger
 
@@ -43,31 +43,6 @@ class GeneratedData:
 
     tables: dict[str, pl.DataFrame]
     latent: dict[str, pl.DataFrame]
-
-
-def mcc_dimension(cfg: ProjectConfig) -> pl.DataFrame:
-    """One row per MCC with its group and the group's business parameters."""
-    enums = enum_dtypes(cfg)
-    rows = []
-    for mcc in cfg.mcc_groups.mccs:
-        group = cfg.mcc_groups.groups[mcc.group]
-        rows.append(
-            {
-                "mcc": mcc.mcc,
-                "name": mcc.name,
-                "mcc_group": mcc.group,
-                "sector_margin": group.sector_margin,
-                "base_elasticity": group.base_elasticity,
-                "blended_mdr_rate": group.blended_mdr_rate,
-            }
-        )
-    return pl.DataFrame(rows).cast({"mcc": enums["mcc"], "mcc_group": enums["mcc_group"]})
-
-
-def network_fees_dimension(cfg: ProjectConfig) -> pl.DataFrame:
-    """The fee the network charges out of the MDR, one row (read by the dbt pipeline)."""
-    fee = cfg.network.scheme_fee
-    return pl.DataFrame({"scheme_fee_rate": [fee.rate], "scheme_fee_fixed_cop": [fee.fixed_cop]})
 
 
 def generate(cfg: ProjectConfig) -> GeneratedData:
@@ -112,9 +87,7 @@ def generate(cfg: ProjectConfig) -> GeneratedData:
         "merchants": merchants,
         "cardholders": cardholders,
         "transactions": transactions.select(list(schema)).cast(dict(schema)),
-        "mccs": mcc_dimension(cfg),
-        "interchange_table": build_interchange_table(cfg),
-        "network_fees": network_fees_dimension(cfg),
+        **reference_tables(cfg),
     }
     latent = {
         "cardholders_latent": card_latent.to_frame(cfg),

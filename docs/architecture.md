@@ -1,16 +1,19 @@
 # Architecture
 
-> Living document. Feature 2 adds the data pipeline; later features add the graph,
-> simulator, optimizer and app, and Feature 9 completes it for the README.
+> Living document. Feature 2 added the data pipeline and Feature 3 the unit economics; later
+> features add the graph, simulator, optimizer and app, and Feature 9 completes it for the
+> README.
 
 ## Data pipeline (Feature 2)
 
 ```mermaid
 flowchart LR
     config["config/*.yaml"] --> generate["ips.data_gen.generate"]
+    config --> params["ips.economics.params<br/>reference tables"]
     generate --> raw[("data/raw/*.parquet")]
+    params --> raw
     raw --> staging["staging views<br/>stg_*"]
-    staging --> fct["fct_transactions<br/>(macro interchange_lookup)"]
+    staging --> fct["fct_transactions<br/>(fee waterfall per row)"]
     staging --> dims["dim_merchant · dim_cardholder<br/>dim_issuer · dim_acquirer · dim_date"]
     fct --> pnl["mart_pnl_by_actor"]
     fct --> eff["mart_effective_interchange"]
@@ -24,31 +27,64 @@ Everything downstream of `data/raw/` lives in the DuckDB warehouse
 
 | Layer | Models | Materialisation | Purpose |
 |---|---|---|---|
-| Sources | `raw.*` (8 parquet files) | external | The generator's output, read in place |
+| Sources | `raw.*` (9 parquet files) | external | The generator's output and the reference tables, read in place |
 | Staging | `stg_*` | view | Types and names, one view per source |
-| Core | `fct_transactions`, `dim_*` | table | Facts with the network's fees applied per row; conformed dimensions |
+| Core | `fct_transactions`, `dim_*` | table | Facts with the network's fee waterfall applied per row; conformed dimensions |
 | Marts | `mart_*` | table | Business-ready aggregates for economics, graph and simulator |
+
+The reference tables (`mccs`, `interchange_table`, `network_fees`, `pricing_terms`) come from
+`config/*.yaml` through `ips.economics.params`. The generator writes them, and
+`python -m ips.tasks dbt` rewrites them before every build, so changing a fee never requires
+regenerating the transactions.
+
+## Unit economics (Feature 3)
+
+The P&L of a purchase has two layers:
+
+| Layer | What it contains | Where |
+|---|---|---|
+| **Fee waterfall** | Interchange, the network's fees on both sides (assessment, authorization, cross-border) and the MDR of the merchant's pricing model (blended or IC++). Issuer gross + network revenue + acquirer gross = MDR | `ips.economics.pnl` and `fct_transactions`, row by row |
+| **Operating costs** | Rewards, grace-period funding, expected credit loss, processing and net fraud for the issuer; processing for the acquirer; chargebacks for the merchant. They turn each party's gross into its contribution | `ips.economics.pnl` |
+
+```mermaid
+flowchart LR
+    tx["transactions<br/>+ merchants.pricing_model"] --> waterfall["fee waterfall<br/>NetworkPnL · MerchantCost"]
+    waterfall --> costs["operating costs<br/>IssuerPnL · AcquirerPnL"]
+    costs --> result["PnLResult<br/>per transaction · by actor"]
+    result --> metrics["ips.economics.metrics<br/>yield · effective interchange<br/>issuer contribution · relative burden"]
+    result --> bridge["ips.economics.revenue_bridge<br/>volume · cross-border · mix · rate"]
+```
+
+- `compute_pnl(transactions, table, cfg)` takes the interchange table apart from the
+  configuration, because it is the lever that scenarios and the optimizer will move.
+- The metrics aggregate by any segment through `pnl_by`, so the notebooks and the simulator
+  share one definition of each.
+- The revenue bridge splits the change in network revenue between two periods or two
+  scenarios with Shapley values: the effects add up exactly to the change and do not depend
+  on the order of the drivers.
+- `notebooks/02_unit_economics.ipynb` is the static dashboard of this layer.
 
 ## Guarantees
 
-- **P&L conservation** (`dbt/tests/assert_pnl_conservation.sql`): interchange + scheme fee +
-  acquirer margin equals the MDR in every row, in every mart and in the totals. The same
-  test also catches joins that duplicate rows.
+- **P&L conservation** (`dbt/tests/assert_pnl_conservation.sql`, `tests/test_economics.py`):
+  issuer gross + network revenue + acquirer gross equals the MDR in every row, in every mart,
+  in every aggregation and in the totals, and network revenue equals the sum of its drivers.
+  The dbt test also catches joins that duplicate rows.
 - **Python and SQL agree** (`tests/test_pipeline.py`): on the sample, `fct_transactions`
-  matches `ips.economics.simple_pnl.compute_pnl` row by row, and each mart matches its
-  Python counterpart.
-- **No hardcoded fees in SQL:** interchange, blended MDR and the scheme fee arrive as raw
-  tables generated from `config/*.yaml`.
+  matches `ips.economics.pnl.compute_pnl` row by row on every waterfall column and network
+  driver, and each mart matches its Python counterpart.
+- **No hardcoded fees in SQL:** interchange, blended MDR, network fees and pricing terms
+  arrive as raw tables generated from `config/*.yaml`.
 - **Referential integrity:** `relationships` tests from the fact table to every dimension.
 
 ## Running it
 
 ```text
 python -m ips.tasks generate        # data/raw (use --sample for the small dataset)
-python -m ips.tasks dbt             # dbt build: models + tests
+python -m ips.tasks dbt             # reference tables from config, then dbt build
 python -m ips.tasks docs --serve    # dbt docs with the lineage graph
 python -m ips.tasks test            # pytest + ruff
-python -m ips.tasks all             # the three above, in order
+python -m ips.tasks all             # generate, dbt and test, in order
 ```
 
 `make <task>` does the same on Linux and CI.

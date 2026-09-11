@@ -16,8 +16,8 @@ import subprocess
 import sys
 from collections.abc import Sequence
 
-from ips.utils.config import project_root
-from ips.utils.io import run_dbt
+from ips.utils.config import load_config, project_root
+from ips.utils.io import raw_dir, run_dbt
 
 _CHECKS = (["pytest", "-q"], ["ruff", "check", "."], ["ruff", "format", "--check", "."])
 
@@ -30,6 +30,11 @@ def _generate(sample: bool) -> int:
 
 
 def _dbt(args: Sequence[str]) -> int:
+    # Las tablas de referencia (tarifas, fees, MCC) salen del config: se reescriben antes de
+    # cada corrida, así cambiar un fee no exige regenerar las transacciones.
+    from ips.economics.params import write_reference_tables
+
+    write_reference_tables(load_config(), raw_dir())
     return run_dbt(list(args) or ["build"]).returncode
 
 
