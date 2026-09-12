@@ -53,7 +53,9 @@ def _segment(months: int | None) -> int:
     run = run_segmentation(cfg, months=months)
     paths = write_artifacts(run, cfg)
     print(run.comparison)
-    print(run.verdict)
+    print(run.marginal)
+    for sentence in run.verdicts():
+        print(sentence)
     print("artifacts: " + ", ".join(str(path) for path in paths.values()))
     return 0
 

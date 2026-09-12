@@ -75,25 +75,34 @@ def shuffled_modularity(
 
 
 def normalized_mutual_info(a: pl.Series | np.ndarray, b: pl.Series | np.ndarray) -> float:
-    """Normalised mutual information between two labellings (arithmetic normalisation)."""
+    """Normalised mutual information between two labellings (arithmetic normalisation).
+
+    Las marginales salen de ventanas sobre la misma tabla de conteos: calcularlas aparte y
+    unirlas reordena las filas, y cada celda terminaría dividida por la marginal de otra.
+    """
     counts = (
         pl.DataFrame({"a": pl.Series(a).cast(pl.Utf8), "b": pl.Series(b).cast(pl.Utf8)})
         .group_by("a", "b")
         .len()
+        .with_columns(
+            (pl.col("len") / pl.col("len").sum()).alias("p_ab"),
+            (pl.col("len").sum().over("a") / pl.col("len").sum()).alias("p_a"),
+            (pl.col("len").sum().over("b") / pl.col("len").sum()).alias("p_b"),
+        )
     )
-    n = counts["len"].sum()
-    p_ab = counts["len"].to_numpy() / n
-    p_a = counts.group_by("a").agg(pl.col("len").sum())["len"].to_numpy() / n
-    p_b = counts.group_by("b").agg(pl.col("len").sum())["len"].to_numpy() / n
-    marginal_a = counts.join(counts.group_by("a").agg(pl.col("len").sum().alias("na")), on="a")
-    marginal = marginal_a.join(counts.group_by("b").agg(pl.col("len").sum().alias("nb")), on="b")
-    expected = marginal["na"].to_numpy() * marginal["nb"].to_numpy() / n**2
-    mutual = float(np.sum(p_ab * np.log(p_ab / expected)))
-    entropy_a = float(-np.sum(p_a * np.log(p_a)))
-    entropy_b = float(-np.sum(p_b * np.log(p_b)))
-    if entropy_a + entropy_b == 0:
+    joint = counts["p_ab"].to_numpy()
+    expected = counts["p_a"].to_numpy() * counts["p_b"].to_numpy()
+    mutual = float(np.sum(joint * np.log(joint / expected)))
+    entropies = [
+        float(-np.sum(shares * np.log(shares)))
+        for shares in (
+            counts.group_by(column).agg(pl.col("p_ab").sum())["p_ab"].to_numpy()
+            for column in ("a", "b")
+        )
+    ]
+    if sum(entropies) == 0:
         return 1.0
-    return 2 * mutual / (entropy_a + entropy_b)
+    return 2 * mutual / sum(entropies)
 
 
 def leiden_partition(

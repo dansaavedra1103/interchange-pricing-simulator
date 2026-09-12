@@ -24,7 +24,7 @@ class Segmentation:
     labels: pl.DataFrame  # merchant_id, segment
     k: int
     silhouette: float
-    scores: pl.DataFrame  # k, silhouette (empty when k was not chosen by search)
+    scores: pl.DataFrame  # k, score of the search that chose k (empty when k was given)
 
     def segment_of(self) -> dict[int, int]:
         """Segment by merchant id."""
@@ -79,11 +79,11 @@ def select_k(matrix: np.ndarray, cfg: ProjectConfig) -> tuple[int, pl.DataFrame]
     for k in cfg.segmentation.k_values:
         if k >= matrix.shape[0]:
             continue
-        rows.append({"k": k, "silhouette": _silhouette(matrix, _fit(matrix, k, cfg), cfg)})
+        rows.append({"k": k, "score": _silhouette(matrix, _fit(matrix, k, cfg), cfg)})
     if not rows:
         raise ValueError("No candidate k fits this population")
     scores = pl.DataFrame(rows)
-    best = scores.sort("silhouette", descending=True)["k"].first()
+    best = scores.sort("score", descending=True)["k"].first()
     return int(best), scores
 
 
@@ -97,7 +97,7 @@ def cluster_merchants(
     """Cluster merchants in the given space; ``k`` defaults to the silhouette choice."""
     if matrix.shape[0] != len(merchant_ids):
         raise ValueError("One row per merchant is required")
-    scores = pl.DataFrame(schema={"k": pl.Int64, "silhouette": pl.Float64})
+    scores = pl.DataFrame(schema={"k": pl.Int64, "score": pl.Float64})
     if k is None:
         k, scores = select_k(matrix, cfg)
     segments = _fit(matrix, k, cfg)

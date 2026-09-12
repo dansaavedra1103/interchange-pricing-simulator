@@ -4,6 +4,7 @@ measures what it claims."""
 from __future__ import annotations
 
 import datetime as dt
+from dataclasses import replace
 
 import numpy as np
 import polars as pl
@@ -13,6 +14,7 @@ from ips.data_gen.diagnostics import normalized_mutual_info
 from ips.data_gen.generate import GeneratedData
 from ips.data_gen.interchange_table import build_interchange_table
 from ips.economics.pnl import compute_pnl
+from ips.graph.baseline_kmeans import BENCHMARK, feature_matrix
 from ips.graph.build_graph import (
     build_bipartite,
     edges_from_transactions,
@@ -20,10 +22,28 @@ from ips.graph.build_graph import (
     window_edges,
 )
 from ips.graph.clustering import UNASSIGNED, cluster_merchants
-from ips.graph.evaluate import COMPARISON_COLUMNS, eta_squared, out_of_sample, verdict
+from ips.graph.evaluate import (
+    COMPARISON_COLUMNS,
+    compare_segmentations,
+    eta_squared,
+    marginal_information,
+    marginal_verdict,
+    out_of_sample,
+    train_test_split,
+    verdict,
+)
 from ips.graph.features import clustered_population, merchant_profile
-from ips.graph.pipeline import ARTIFACTS, SegmentationRun, segment_merchants, write_artifacts
+from ips.graph.pipeline import (
+    ARTIFACTS,
+    BASELINE,
+    GRAPH,
+    SUPERVISED,
+    SegmentationRun,
+    segment_merchants,
+    write_artifacts,
+)
 from ips.graph.spectral_embed import MerchantEmbedding, embed_merchants
+from ips.graph.supervised import fit_supervised
 from ips.utils.config import ProjectConfig
 
 pytest.importorskip("sklearn", reason="needs the graph extra: pip install -e '.[graph]'")
@@ -246,7 +266,15 @@ def test_out_of_sample_rewards_a_real_signal(cfg: ProjectConfig) -> None:
 def test_comparison_covers_every_method(run: SegmentationRun) -> None:
     comparison = run.comparison
     assert comparison.columns == list(COMPARISON_COLUMNS)
-    assert set(comparison["method"]) == {"baseline", "graph", "hybrid", "leiden"}
+    assert set(comparison["method"]) == {
+        BENCHMARK,
+        "baseline",
+        "graph",
+        "hybrid",
+        "leiden",
+        "supervised",
+        "supervised_graph",
+    }
     assert (comparison["segments"] >= 2).all()
     assert ((comparison["coverage"] > 0) & (comparison["coverage"] <= 1)).all()
     assert ((comparison["eta2_interchange"] <= 1) & (comparison["eta2_interchange"] >= -1e-9)).all()
@@ -280,11 +308,98 @@ def test_leiden_finds_the_planted_clientele(run: SegmentationRun, data: Generate
 
 def test_segment_profiles_add_up(run: SegmentationRun) -> None:
     profiles = run.profiles
-    assert profiles.height == run.method("graph").k
+    assert profiles.height == run.method(SUPERVISED).k
     assert profiles["volume_share"].sum() == pytest.approx(1.0)
     assert profiles["merchants"].sum() == run.population.height
     assert profiles["top_mcc_group"].null_count() == 0
     assert ((profiles["cnp_share"] >= 0) & (profiles["cnp_share"] <= 1)).all()
+
+
+def test_blocks_weigh_the_same(cfg: ProjectConfig, profile: pl.DataFrame) -> None:
+    # Sin equilibrar, las continuas estandarizadas dominan y la categoría deja de contar.
+    matrix, names = feature_matrix(clustered_population(profile, cfg), cfg)
+    numeric = len([n for n in names if "=" not in n])
+    for block in (matrix[:, :numeric], matrix[:, numeric:]):
+        assert float(np.linalg.norm(block, axis=1).mean()) == pytest.approx(1.0, rel=1e-9)
+
+
+def test_benchmark_without_a_model_beats_kmeans(run: SegmentationRun) -> None:
+    # La referencia honesta: dejar cada comercio en su grupo de MCC, sin analítica.
+    scores = dict(zip(run.comparison["method"], run.comparison["burden_r2_oos"], strict=True))
+    assert run.method(BENCHMARK).k == run.population["mcc_group"].n_unique()
+    assert run.method(BENCHMARK).coverage == 1.0
+    # Es el grupo de MCC: su información compartida con el grupo de MCC tiene que ser exacta.
+    benchmark = run.comparison.filter(pl.col("method") == BENCHMARK)
+    assert benchmark["nmi_mcc_group"].item() == pytest.approx(1.0)
+    assert scores[BENCHMARK] > scores[BASELINE]
+    assert scores[BENCHMARK] > scores[GRAPH]
+
+
+def test_supervised_segmentation_leads_the_ladder(cfg: ProjectConfig, run: SegmentationRun) -> None:
+    scores = dict(zip(run.comparison["method"], run.comparison["burden_r2_oos"], strict=True))
+    assert scores[SUPERVISED] > scores[BASELINE]
+    assert scores[SUPERVISED] > scores[GRAPH]
+    assert run.method(SUPERVISED).k in cfg.segmentation.k_values
+    assert run.method(SUPERVISED).coverage == 1.0
+
+
+def test_supervised_never_sees_the_held_out_merchants(
+    cfg: ProjectConfig, run: SegmentationRun
+) -> None:
+    # Si el árbol hubiera mirado la mitad de prueba, cambiarle el objetivo movería los segmentos.
+    population = run.population
+    matrix, _ = feature_matrix(population, cfg)
+    _, test = train_test_split(population.height, cfg)
+    values = population["relative_burden"].to_numpy().copy()
+    values[test] = np.random.default_rng(0).permutation(values[test]) * 3.0
+    altered = population.with_columns(pl.Series("relative_burden", values))
+    again, _ = fit_supervised(altered, matrix, cfg, SUPERVISED, leaves=run.method(SUPERVISED).k)
+    assert again.labels.equals(run.method(SUPERVISED).labels)
+
+
+def test_evaluation_does_not_depend_on_the_row_order_of_the_labels(
+    cfg: ProjectConfig, run: SegmentationRun
+) -> None:
+    # La partición de prueba es posicional: si la evaluación siguiera el orden que devuelve el
+    # join, el método supervisado se mediría sobre comercios que vio al entrenarse.
+    supervised = run.method(SUPERVISED)
+    shuffled = replace(
+        supervised, labels=supervised.labels.sample(fraction=1.0, shuffle=True, seed=3)
+    )
+    straight = compare_segmentations([supervised], run.population, cfg)
+    mixed = compare_segmentations([shuffled], run.population, cfg)
+    assert mixed["burden_r2_oos"].item() == pytest.approx(straight["burden_r2_oos"].item())
+    assert mixed["eta2_burden"].item() == pytest.approx(straight["eta2_burden"].item())
+
+
+def test_segment_rules_describe_every_segment(cfg: ProjectConfig, run: SegmentationRun) -> None:
+    rules = run.rules
+    train, _ = train_test_split(run.population.height, cfg)
+    assert rules.height == run.method(SUPERVISED).k
+    assert rules["rule"].str.len_chars().min() > 0
+    assert rules["merchants_in_fit"].sum() == len(train)
+    _, names = feature_matrix(run.population, cfg)
+    mentioned = " ".join(rules["rule"].to_list())
+    assert any(name.split("=")[0] in mentioned for name in names)
+
+
+def test_marginal_information_separates_signal_from_noise(cfg: ProjectConfig) -> None:
+    rng = np.random.default_rng(cfg.seed)
+    n = 2_000
+    signal = rng.normal(size=(n, 3))
+    noise = rng.normal(size=(n, 3))
+    values = np.where(signal[:, 0] > 0, 2.0, 1.0) + rng.normal(scale=0.05, size=n)
+    spaces = {
+        "attributes": signal,
+        "graph": noise,
+        "attributes + graph": np.hstack([signal, noise]),
+    }
+    marginal = marginal_information(spaces, values, cfg)
+    scores = dict(zip(marginal["space"], marginal["r2_oos"], strict=True))
+    assert scores["attributes"] > 0.9
+    assert scores["graph"] < 0.1
+    assert scores["attributes + graph"] <= scores["attributes"] + 0.02
+    assert "adds nothing measurable" in marginal_verdict(marginal)
 
 
 def test_artifacts_round_trip(cfg: ProjectConfig, run: SegmentationRun, tmp_path) -> None:

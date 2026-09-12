@@ -247,34 +247,50 @@ visual de los clústeres.
 | F4-08 | La homogeneidad del interchange efectivo se pondera por volumen, porque ahí está el ingreso; la de la carga relativa va por comercio, porque dejar de aceptar es una decisión por comercio | [P] | `evaluate.py` |
 | F4-09 | La clientela latente que plantó el generador (F1-16) se usa solo como diagnóstico del método, nunca como criterio de éxito: el veredicto lo decide la métrica de negocio | [P], criterio de honestidad de CLAUDE.md | `evaluate.py`, notebook 03 |
 
+### Escalera de comparación (Feature 4b)
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F4-10 | La referencia de toda la escalera es dejar cada comercio en su propio grupo de MCC, sin modelo ni analítica. Una segmentación que no le gane no se justifica | [P], criterio de honestidad de CLAUDE.md | `baseline_kmeans.py: segment_by_mcc_group` |
+| F4-11 | El baseline equilibra sus dos bloques de variables (continuas estandarizadas e indicadores de categoría) a la misma norma media por fila; sin eso, las continuas dominan la distancia y la categoría del comercio, que es la que manda en su economía, casi no cuenta | [P] | `baseline_kmeans.py: feature_matrix` |
+| F4-12 | Segmentación supervisada: los segmentos son las hojas de un árbol de regresión sobre la carga relativa, la segmentación por árbol que usa la industria (CART, CHAID). Cada segmento queda descrito por la regla que lo define | [P] | `supervised.py` |
+| F4-13 | Todas las cifras fuera de muestra usan la misma partición (`train_test_split`); el árbol se ajusta solo con la mitad de entrenamiento y su número de hojas se elige dentro de esa mitad. La evaluación ordena por `merchant_id` porque la partición es posicional | [P] (diseño) | `evaluate.py`, `supervised.py` |
+| F4-14 | El aporte del grafo se mide además con el mismo predictor sobre cada representación, sin el paso de clustering: así ningún método se lleva el crédito de la compresión en vez del de la información | [P] | `evaluate.py: marginal_information` |
+
 ### Resultado (datos sintéticos, semilla 20260910)
 
 28.438 comercios de 30.521 con compras, 4,3M aristas y 150.000 tarjetas; la corrida completa
-toma ~35 s.
+toma ~60 s.
 
-| Método | Segmentos | η² interchange | η² carga | R² fuera de muestra | NMI con clientela |
+| Método | Segmentos | R² fuera de muestra | Lift en el decil más cargado | NMI con MCC | NMI con clientela |
 |---|---|---|---|---|---|
-| Atributos (baseline) | 8 | 0,497 | 0,078 | **0,077** | 0,084 |
-| Grafo (embeddings) | 12 | 0,403 | 0,015 | 0,011 | **0,373** |
-| Híbrido | 12 | **0,583** | 0,073 | 0,069 | 0,212 |
-| Leiden | 8 (55 % de cobertura) | 0,045 | 0,002 | 0,001 | 0,002 |
+| Grupo de MCC, sin modelo | 12 | 0,740 | 3,63 | 1,000 | 0,033 |
+| k-means, atributos | 10 | 0,081 | 1,55 | 0,213 | 0,059 |
+| k-means, grafo | 12 | 0,011 | 1,07 | 0,035 | **0,373** |
+| k-means, atributos + grafo | 12 | 0,069 | 1,52 | 0,200 | 0,220 |
+| Leiden | 8 (55 % de cobertura) | 0,001 | 0,83 | 0,008 | 0,002 |
+| **Supervisada, atributos** | 12 | **0,751** | **3,81** | 0,838 | 0,033 |
+| Supervisada, atributos + grafo | 12 | 0,751 | 3,81 | 0,838 | 0,033 |
 
-- **El grafo no le gana al baseline en la métrica de negocio.** Para predecir la carga
-  relativa de un comercio que el modelo no vio, los atributos explican 0,077 y el grafo 0,011.
-  La razón es económica y no del método: la carga es MDR efectivo sobre margen sectorial, y el
-  margen es una propiedad del grupo de MCC, justo lo que el baseline codifica.
-- **El grafo sí aporta donde está el ingreso.** Sumado a los atributos sube la homogeneidad del
-  interchange efectivo de 0,497 a 0,583: agrupa comercios que comparten clientes y por eso
-  comparten mezcla de tarjetas.
-- **El método funciona sobre estos datos:** solo con el grafo, la segmentación recupera la
-  clientela plantada (NMI 0,373 frente a 0,084 del baseline).
+Información marginal con el mismo predictor: atributos 0,751; solo grafo 0,105; atributos +
+grafo 0,751, es decir una diferencia de 0,000.
+
+- **El grafo no le gana al baseline, y tampoco aporta sobre los atributos.** Con el mismo
+  predictor, sumarle los embeddings deja el R² idéntico. La razón es económica y no del método:
+  la carga es MDR efectivo sobre margen sectorial, y el margen es una propiedad del grupo de
+  MCC.
+- **El techo nunca fue el problema.** Quedarse con el grupo de MCC, sin modelo, explica 0,740 de
+  la carga fuera de muestra; el k-means comprimía doce categorías en ocho o diez clústeres y
+  perdía justo lo que mueve el objetivo.
+- **La segmentación supervisada es la que sirve:** 0,751 con doce hojas, una regla legible por
+  segmento y el mejor lift (3,81) para encontrar a los comercios más cargados.
+- **El método del grafo funciona sobre estos datos:** solo con el grafo, la segmentación
+  recupera la clientela plantada (NMI 0,373 frente a 0,059 del baseline). Esa estructura existe;
+  simplemente no es la que decide lo que paga un comercio.
 - **Leiden sobre la proyección podada es el más débil:** cubre el 55 % de los comercios y
   explica casi nada. La poda conserva señal de clientela pero pierde cobertura.
-- **El veredicto no depende del número de segmentos:** barriendo k de 4 a 12, el grafo queda
-  por debajo del baseline en todos los casos (0,003–0,011 contra 0,031–0,166).
-- **La silueta no elige el k que le sirve al negocio:** el baseline vale 0,166 con k = 10 y
-  0,077 con el k = 8 que eligió la silueta. Elegir k por la métrica de negocio sería el
-  siguiente paso y exigiría su propia partición de prueba para no sobreajustar.
+- **El veredicto no depende del número de segmentos:** barriendo k de 4 a 12, el grafo queda por
+  debajo en todos los casos y la segmentación supervisada por encima en todos.
 
 ### Consecuencias a tener presentes
 
@@ -284,7 +300,11 @@ toma ~35 s.
 - La comparación se decide fuera de muestra a propósito: la homogeneidad dentro del clúster
   siempre mejora al partir en más segmentos, y Leiden elige su propio número de comunidades.
 - La Feature 5 traerá la curva de abandono; `evaluate.py` la sumará como una columna más y la
-  comparación se rehará con la métrica real.
+  comparación se rehará con la métrica real. El grafo merece una segunda audiencia ahí: quién
+  le compra a quién es exactamente lo que decide a dónde se va el volumen cuando un comercio
+  deja de aceptar.
+- Los segmentos supervisados sirven para el objetivo con el que se cortaron. Para preguntas de
+  sustitución hay que volver a la representación del grafo.
 
 ### Fuentes
 

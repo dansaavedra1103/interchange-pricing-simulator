@@ -1,7 +1,9 @@
-"""End to end segmentation: graph, embeddings, three methods, comparison and artifacts.
+"""End to end segmentation: graph, embeddings, the ladder of methods, and the artifacts.
 
-The three methods label exactly the same merchants — those with enough purchases in the
-window — so the comparison is about the space they live in, not about who was included.
+Every method labels exactly the same merchants — those with enough purchases in the window —
+so the comparison is about the representation and the objective, not about who was included.
+The ladder runs from the benchmark that needs no model (the merchant's own MCC group), through
+the unsupervised methods, to the supervised one that targets the business number directly.
 """
 
 from __future__ import annotations
@@ -13,11 +15,16 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from ips.graph.baseline_kmeans import feature_matrix, fit_baseline
+from ips.graph.baseline_kmeans import BENCHMARK, feature_matrix, fit_baseline, segment_by_mcc_group
 from ips.graph.build_graph import build_bipartite, load_edges, project_merchants
 from ips.graph.clustering import Segmentation, cluster_merchants, combine_spaces
 from ips.graph.communities import leiden_communities
-from ips.graph.evaluate import compare_segmentations, verdict
+from ips.graph.evaluate import (
+    compare_segmentations,
+    marginal_information,
+    marginal_verdict,
+    verdict,
+)
 from ips.graph.features import (
     clustered_population,
     load_merchants,
@@ -26,28 +33,35 @@ from ips.graph.features import (
 )
 from ips.graph.segment_profiles import profile_segments
 from ips.graph.spectral_embed import MerchantEmbedding, embed_merchants
+from ips.graph.supervised import TARGET, fit_supervised, segment_rules
 from ips.utils.config import ProjectConfig, load_config
 from ips.utils.io import artifacts_dir, raw_dir
 from ips.utils.logging import get_logger
 
 BASELINE, GRAPH, HYBRID, LEIDEN = "baseline", "graph", "hybrid", "leiden"
+SUPERVISED, SUPERVISED_GRAPH = "supervised", "supervised_graph"
+SPACES = ("attributes", "graph", "attributes + graph")
 ARTIFACTS = {
     "embeddings": Path("embeddings") / "merchant_embeddings.parquet",
     "segments": Path("segments") / "merchant_segments.parquet",
     "comparison": Path("segments") / "segmentation_comparison.parquet",
     "profiles": Path("segments") / "segment_profiles.parquet",
+    "rules": Path("segments") / "segment_rules.parquet",
+    "marginal": Path("segments") / "marginal_information.parquet",
 }
 
 
 @dataclass(frozen=True)
 class SegmentationRun:
-    """What one run produces: the population, the three methods, the comparison and profiles."""
+    """What one run produces: the population, every method, the comparison and the profiles."""
 
     population: pl.DataFrame
     embedding: MerchantEmbedding
     segmentations: tuple[Segmentation, ...]
     comparison: pl.DataFrame
+    marginal: pl.DataFrame
     profiles: pl.DataFrame
+    rules: pl.DataFrame
     graph_stats: dict[str, float]
 
     def method(self, name: str) -> Segmentation:
@@ -59,8 +73,16 @@ class SegmentationRun:
 
     @property
     def verdict(self) -> str:
-        """The sentence that closes the comparison: graph against baseline."""
+        """The Feature 4 question: does the graph beat the attribute baseline?"""
         return verdict(self.comparison, BASELINE, GRAPH)
+
+    def verdicts(self) -> list[str]:
+        """The three sentences that close the comparison, whichever way they come out."""
+        return [
+            verdict(self.comparison, BASELINE, GRAPH),
+            verdict(self.comparison, BENCHMARK, SUPERVISED),
+            marginal_verdict(self.marginal),
+        ]
 
     def segments_frame(self) -> pl.DataFrame:
         """One row per merchant with the segment each method gave it."""
@@ -80,7 +102,7 @@ def segment_merchants(
     cfg: ProjectConfig,
     latent: pl.DataFrame | None = None,
 ) -> SegmentationRun:
-    """Segment the merchants three ways over the same population and compare the results."""
+    """Run every method over the same population and compare them."""
     graph = build_bipartite(edges, cfg)
     in_graph = pl.DataFrame({"merchant_id": pl.Series(graph.merchant_ids, dtype=pl.UInt32)})
     population = (
@@ -96,22 +118,30 @@ def segment_merchants(
     rows = np.array([position[int(merchant)] for merchant in population["merchant_id"]])
     merchant_ids = population["merchant_id"].to_numpy()
 
-    # El híbrido responde la pregunta que sigue: ¿el grafo agrega algo sobre lo que el banco
-    # ya sabe del comercio, o repite esa información?
     vectors = embedding.vectors[rows]
-    tabular, _ = feature_matrix(population, cfg)
+    tabular, names = feature_matrix(population, cfg)
+    both = combine_spaces(tabular, vectors)
+    supervised, tree = fit_supervised(population, tabular, cfg, SUPERVISED)
+    supervised_graph, _ = fit_supervised(population, both, cfg, SUPERVISED_GRAPH)
     segmentations = (
+        segment_by_mcc_group(population),
         fit_baseline(population, cfg),
         cluster_merchants(GRAPH, merchant_ids, vectors, cfg),
-        cluster_merchants(HYBRID, merchant_ids, combine_spaces(tabular, vectors), cfg),
+        cluster_merchants(HYBRID, merchant_ids, both, cfg),
         leiden_communities(project_merchants(edges, cfg), merchant_ids, cfg),
+        supervised,
+        supervised_graph,
     )
+    spaces = dict(zip(SPACES, (tabular, vectors, both), strict=True))
     return SegmentationRun(
         population=population,
         embedding=embedding,
         segmentations=segmentations,
         comparison=compare_segmentations(segmentations, population, cfg, latent),
-        profiles=profile_segments(segmentations[1], population),  # the graph segmentation
+        marginal=marginal_information(spaces, population[TARGET].to_numpy(), cfg),
+        # El perfil es el de la segmentación supervisada: es la que un equipo llevaría al memo.
+        profiles=profile_segments(supervised, population),
+        rules=segment_rules(tree, names),
         graph_stats=graph.stats(),
     )
 
@@ -154,7 +184,7 @@ def run_segmentation(
 
 
 def write_artifacts(run: SegmentationRun, cfg: ProjectConfig | None = None) -> dict[str, Path]:
-    """Write embeddings, segments, comparison and profiles under ``data/artifacts``."""
+    """Write embeddings, segments, comparison, profiles and rules under ``data/artifacts``."""
     base = artifacts_dir(cfg)
     paths = {name: base / relative for name, relative in ARTIFACTS.items()}
     for path in paths.values():
@@ -163,4 +193,6 @@ def write_artifacts(run: SegmentationRun, cfg: ProjectConfig | None = None) -> d
     run.segments_frame().write_parquet(paths["segments"])
     run.comparison.write_parquet(paths["comparison"])
     run.profiles.write_parquet(paths["profiles"])
+    run.rules.write_parquet(paths["rules"])
+    run.marginal.write_parquet(paths["marginal"])
     return paths
