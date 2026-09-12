@@ -28,6 +28,9 @@ dev = [
 ]
 pipeline = ["dbt-duckdb>=1.8"]
 graph = ["scikit-learn>=1.5", "scipy>=1.11"]
+# Install torch from the CPU index first, or pip pulls the CUDA build and its NVIDIA runtimes:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+gnn = ["torch>=2.2", "torch-geometric>=2.5"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -40,6 +43,8 @@ markers = ["slow: full-scale generation checks, run with `pytest -m slow`"]
 filterwarnings = [
     # pyzmq on Windows (Proactor event loop) warns when the notebook kernel starts; harmless.
     "ignore:Proactor event loop does not implement add_reader:RuntimeWarning",
+    # torch_geometric still imports torch.jit.script at module level; nothing we can act on.
+    "ignore:`torch.jit.script` is deprecated:FutureWarning",
 ]
 
 [tool.ruff]

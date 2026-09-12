@@ -1,0 +1,102 @@
+# Parámetros de elasticidad (Feature 5). Cada ancla está documentada en docs/assumptions.md
+# como [L] literatura o [P] supuesto propio.
+#
+# ADVERTENCIA METODOLÓGICA: los datos sintéticos no contienen eventos de abandono de
+# aceptación, así que la curva NO está estimada. Sus dos parámetros por grupo se resuelven
+# para que reproduzcan dos momentos tomados de literatura sobre la distribución real de carga
+# relativa de la población. Es un supuesto estructural, no un hallazgo.
+
+acceptance:
+  # Ancla 1 [P]: cuántos comercios dejan de aceptar tarjetas en un año. Supuesto propio de orden
+  # de magnitud para un mercado con aceptación creciente. No hay detrás una cifra publicada
+  # verificada para Colombia: buscarla es un pendiente, y la calibración no cambia cuando llegue.
+  target_annual_abandonment: 0.035
+
+  # Ancla 2 [P]: puntos porcentuales de aceptación que se pierden cuando el MDR sube lo que
+  # diga `semi_elasticity_shock`. Supuesto propio que traduce una lectura cualitativa de las
+  # reformas de interchange (la aceptación responde al precio, pero poco en el margen); la cifra
+  # no viene de una estimación publicada.
+  target_semi_elasticity: 0.018
+  semi_elasticity_shock: 0.10
+
+  # El multiplicador de sensibilidad de cada grupo sale de `base_elasticity` en
+  # mcc_groups.yaml, normalizado por su mediana: un grupo con elasticidad base alta reacciona
+  # más a la misma carga relativa.
+  use_group_elasticity: true
+
+  # Modificadores sobre el logit. Signo y justificación en docs/assumptions.md.
+  modifiers:
+    # [P] El comercio no presente tiene más alternativas de cobro (transferencia, link de
+    # pago), así que abandona más fácil a igual carga.
+    cnp_share: 0.35
+    # [S, spec §1.8] Donde se permite recargo, el comercio traslada el costo en vez de
+    # rechazar la tarjeta. Solo aplica si `surcharge_allowed` está activo.
+    surcharge_allowed_shift: -0.60
+    # [S, spec §1.5] Un comercio en IC++ ve el cambio de interchange directo; uno en
+    # blended solo si el adquirente se lo traslada.
+    icpp_sensitivity: 1.25
+
+  # [S, spec §1.9] Los pagos instantáneos presionan el débito y el ticket bajo. El
+  # desplazamiento del logit crece con la parte del volumen del comercio que es sustituible.
+  instant_payments:
+    enabled: true
+    max_shift: 0.45
+    small_ticket_cop: 50000.0
+
+  surcharge_allowed: false
+  # Cotas de seguridad: ninguna probabilidad calibrada debe salir de aquí.
+  min_probability: 0.0005
+  max_probability: 0.60
+
+# Respuesta del gasto del tarjetahabiente a un cambio en la tasa de recompensas.
+# [P] Supuesto propio, en puntos de gasto por punto de tasa de recompensas. Crece con el
+# segmento porque el gasto alto es el que realmente optimiza recompensas; los valores no vienen
+# de una estimación publicada.
+cardholder:
+  rewards_semi_elasticity:
+    low: 0.4
+    mid: 0.9
+    high: 1.6
+  # El gasto no puede caer más de esta fracción por un cambio de recompensas: hay consumo que
+  # no depende del incentivo.
+  max_spend_change: 0.25
+
+# Link prediction: a dónde se va el volumen de un comercio que deja de aceptar.
+link_prediction:
+  # Últimos meses de la ventana reservados para evaluar. El resto entrena.
+  holdout_months: 3
+  top_k: 10
+  # Titulares evaluados, muestreados con la semilla del proyecto.
+  eval_cardholders: 2000
+  # Un titular entra a la evaluación si tiene al menos este número de enlaces nuevos.
+  min_new_links: 1
+  # Comercios candidatos por titular: los más populares del entrenamiento. Acota el ranking
+  # sin sesgar la comparación, porque todos los métodos ven el mismo conjunto.
+  candidate_merchants: 3000
+  # Titulares que entran al entrenamiento. Acota el costo del GNN en CPU, y se aplica a TODOS
+  # los métodos: la comparación exige que todos vean exactamente el mismo grafo.
+  train_cardholders: 40000
+  # Incertidumbre de cada diferencia: bootstrap pareado sobre los titulares evaluados. Una
+  # ventaja cuyo intervalo cruza el cero se reporta como indistinguible, no como victoria.
+  bootstrap_samples: 2000
+  confidence_level: 0.95
+
+  gnn:
+    hidden_dims: 64
+    layers: 2
+    learning_rate: 0.01
+    negatives_per_positive: 1
+    # Aristas de supervisión por época; acota el costo en CPU sin tocar el message passing.
+    train_edges: 400000
+    # El número de épocas NO se elige mirando los meses reservados: se para cuando la pérdida
+    # de validación deja de mejorar, y esa validación sale de las aristas de entrenamiento.
+    max_epochs: 400
+    patience: 40
+    min_delta: 0.0005
+
+# Redistribución del volumen perdido.
+redistribution:
+  # [P] Parte del volumen que se va del riel de tarjetas (efectivo, pago instantáneo) en vez
+  # de pasar a otro comercio de la red. El resto se reparte entre los sustitutos.
+  leakage_share: 0.35
+  top_substitutes: 10

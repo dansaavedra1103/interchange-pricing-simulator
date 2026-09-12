@@ -14,9 +14,9 @@ from ips.utils.config import ProjectConfig, default_config_path, load_config, re
 
 
 def raw_config() -> dict[str, Any]:
-    """The three YAML files merged as ``load_config`` does, as a mutable dict."""
+    """The YAML files merged as ``load_config`` does, as a mutable dict."""
     data = yaml.safe_load(default_config_path().read_text(encoding="utf-8"))
-    for key in ("mcc_groups", "interchange_table", "economics"):
+    for key in ("mcc_groups", "interchange_table", "economics", "elasticity"):
         path = resolve_path(Path(data["includes"][key]))
         data[key] = yaml.safe_load(path.read_text(encoding="utf-8"))
     return data
@@ -88,6 +88,18 @@ CASES = {
     "small_ticket_product": (
         _set(["interchange_table", "small_ticket", "products"], ["prepaid"]),
         "small_ticket.products",
+    ),
+    "abandonment_outside_bounds": (
+        _set(["elasticity", "acceptance", "target_annual_abandonment"], 0.9),
+        "must lie strictly between",
+    ),
+    "candidates_below_top_k": (
+        _set(["elasticity", "link_prediction", "candidate_merchants"], 5),
+        "must exceed top_k",
+    ),
+    "unknown_spend_segment": (
+        _set(["elasticity", "cardholder", "rewards_semi_elasticity", "premium"], 1.0),
+        "premium",
     ),
 }
 

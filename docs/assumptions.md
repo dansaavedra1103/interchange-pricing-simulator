@@ -10,7 +10,8 @@ Cada supuesto se registra aquí en el momento de introducirlo, con su origen:
   ilustrativa, nunca como hallazgo empírico.
 
 Los valores exactos viven en `config/base.yaml`, `config/mcc_groups.yaml`,
-`config/interchange_table.yaml` y `config/economics.yaml`; este documento explica el porqué.
+`config/interchange_table.yaml`, `config/economics.yaml` y `config/elasticity.yaml`; este
+documento explica el porqué.
 
 ---
 
@@ -313,6 +314,119 @@ grafo 0,751, es decir una diferencia de 0,000.
 - Jiezhong Qiu et al.,
   [*Network Embedding as Matrix Factorization: Unifying DeepWalk, LINE, PTE, and node2vec*](https://arxiv.org/abs/1710.02971)
   (WSDM 2018).
+
+---
+
+## Feature 5 — Elasticidad y link prediction (vigente)
+
+Dos preguntas que el simulador va a encadenar: **cuánto** volumen se va cuando sube la carga de
+un comercio, y **a dónde** se va. Son de naturaleza distinta. La primera no se puede estimar con
+estos datos —el generador no plantó ni un solo abandono—, así que la curva es un **supuesto
+estructural** con dos anclas propias. La segunda sí se mide: los meses reservados contienen
+enlaces reales que ningún método vio.
+
+### Curva de aceptación
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F5-01 | La probabilidad anual de que un comercio deje de aceptar la tarjeta es una logística sobre su carga relativa (MDR efectivo ÷ margen sectorial) | Driver [S §2.4, §2.6]; forma funcional [P] | `merchant_acceptance.py` |
+| F5-02 | La curva **no se estima**: los datos no tienen eventos de abandono. Sus dos parámetros se resuelven por *moment matching* sobre la distribución real de carga de la población, para reproducir dos anclas: 3,5 % de abandono anual y 1,8 pp de aceptación perdida cuando todos los MDR suben 10 % | Método [P]; **las dos cifras son [P]**, sin fuente publicada verificada | `elasticity.yaml: acceptance`, `calibration.py` |
+| F5-03 | Un solo par de parámetros para toda la población. La heterogeneidad entre grupos viene de la `base_elasticity` de `mcc_groups.yaml`, normalizada por su mediana: calibrar un par por grupo le daría a todos la misma tasa de abandono y borraría justo la diferencia que la curva debe expresar | [P] | `params.py: group_sensitivity`, `calibration.py` |
+| F5-04 | Modificadores del logit: +0,35 por unidad de participación no presente, porque ese comercio tiene más alternativas de cobro; −0,60 si se permite el recargo, apagado en el escenario base | Signo del recargo [S §1.8]; signo del no presente y magnitudes [P] | `elasticity.yaml: acceptance.modifiers` |
+| F5-05 | Un comercio en IC++ reacciona 1,25 veces más a la misma carga que uno en blended (el `mixed` queda a mitad de camino), porque ve el cambio de interchange directo | Dirección [S §1.5]; magnitud [P] | `merchant_acceptance.py: burden_term` |
+| F5-06 | Presión del pago instantáneo: hasta +0,45 en el logit, proporcional a la participación del débito por la fracción en que el ticket medio queda bajo 50.000 COP | Dirección [S §1.9]; umbral [S §2.6]; forma y magnitud [P] | `elasticity.yaml: acceptance.instant_payments` |
+| F5-07 | La probabilidad se acota entre 0,05 % y 60 %, y la calibración se hace sobre la curva ya acotada, que es la que consume todo lo demás | [P] | `calibration.py` |
+
+### Respuesta del tarjetahabiente
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F5-08 | El gasto con tarjeta responde a la tasa de recompensas como exp(ε · Δtasa), con ε = 0,4 / 0,9 / 1,6 para los segmentos de gasto bajo, medio y alto, y un cambio máximo de ±25 % | [P], sin estimación publicada verificada | `elasticity.yaml: cardholder`, `cardholder_response.py` |
+
+### Link prediction
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F5-09 | Partición temporal: los últimos 3 meses de la ventana evalúan y el resto entrena. Un positivo es un par tarjetahabiente-comercio que aparece por primera vez en los meses reservados; las recompras no cuentan | [P] (diseño) | `link_prediction.py: split_by_time` |
+| F5-10 | Presupuesto: entrenan 40.000 titulares (el tope se aplica antes de todos los métodos, así que todos ven el mismo grafo), se evalúan 2.000 y los candidatos son los 3.000 comercios más comprados en entrenamiento | [P] (costo en CPU) | `elasticity.yaml: link_prediction` |
+| F5-11 | El escalón a vencer es la popularidad dentro de las categorías que el titular ya usa: no usa el grafo, y una representación que no le gane es popularidad disfrazada | [P], criterio de honestidad de CLAUDE.md | `scorers.py: group_popularity_scores` |
+| F5-12 | GraphSAGE en PyTorch Geometric: dos capas de 64, atributos en ambos lados (del comercio, su perfil de la F4; del titular, segmento, producto, actividad y ticket medio en entrenamiento), decodificador por producto punto y entropía cruzada con un negativo aleatorio por positivo | Método [L: Hamilton et al. 2017]; arquitectura [P] | `gnn.py` |
+| F5-13 | Las aristas de entrenamiento se dividen en paso de mensajes (80 %) y supervisión (20 %), y la supervisión en ajuste (80 %) y validación (20 %). Se conservan los vectores de la época con mejor pérdida de validación; el entrenamiento para cuando esa pérdida lleva 40 épocas sin mejorar o cuando se agota el presupuesto de 400 épocas, lo que llegue primero. Nada de eso mira los meses reservados | [P] (diseño) | `gnn.py: fit_graphsage` |
+| F5-14 | El ajuste corre en un hilo con semilla fija: el número de hilos cambia el orden de reducción en punto flotante, y con él el resultado | [P] | `gnn.py: _deterministic` |
+| F5-15 | Una ventaja en la escalera solo cuenta si su intervalo bootstrap pareado al 95 % (2.000 remuestreos de los titulares evaluados) no cruza el cero; si lo cruza, el veredicto dice que los dos métodos no se distinguen | [P], criterio de honestidad de CLAUDE.md | `link_prediction.py: ranking_gaps`, `verdict` |
+
+### Redistribución
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F5-16 | Los sustitutos de un comercio son sus 10 vecinos más similares en la representación de mayor recall@k entre las dos con vectores de comercio (SVD o GraphSAGE), sin restringirlos a su grupo de MCC | [P] | `link_prediction.py: merchant_substitutes` |
+| F5-17 | El 35 % del volumen perdido sale del riel de tarjetas (efectivo, pago instantáneo) y el resto se reparte entre los sustitutos según su similitud; el volumen de un comercio sin sustitutos cuenta entero como fuga | [P] | `elasticity.yaml: redistribution`, `link_prediction.py` |
+
+### Resultado (datos sintéticos, semilla 20260910)
+
+28.438 comercios y 5,8M aristas. Entrenan 40.000 titulares (1,3M aristas) y se evalúan 2.000
+sobre 5.047 enlaces nuevos entre 3.000 candidatos. La corrida completa toma ~8 minutos, 7,5 de
+ellos en GraphSAGE, y dos corridas separadas dan artifacts idénticos bit a bit. La curva queda en
+α = −35,06 y β = 34,01, y reproduce las dos anclas exactamente.
+
+| Método | recall@10 | Hit rate@10 | MRR | Cobertura |
+|---|---|---|---|---|
+| Aleatorio | 0,002 | 0,006 | 0,003 | 99,9 % |
+| Popularidad global | 0,038 | 0,090 | 0,030 | 0,6 % |
+| Popularidad en las categorías del titular | 0,044 | 0,101 | 0,041 | 4,6 % |
+| Embedding PPMI+SVD | 0,049 | 0,104 | 0,036 | 74,5 % |
+| **GraphSAGE** | **0,053** | **0,118** | **0,048** | 7,8 % |
+
+| Retador frente a referencia | Diferencia en recall@10 | IC 95 % (bootstrap pareado) | Veredicto |
+|---|---|---|---|
+| SVD frente a popularidad por categoría | +0,005 | −0,006 a +0,015 | No se distinguen |
+| GraphSAGE frente a popularidad por categoría | +0,008 | +0,002 a +0,015 | **Gana** |
+| GraphSAGE frente a SVD | +0,004 | −0,007 a +0,015 | No se distinguen |
+
+- **El grafo gana su segunda audiencia, pero por poco y solo con GraphSAGE:** es el único
+  escalón que le gana al baseline fuerte con un intervalo que no cruza el cero, y lidera también
+  en hit rate y MRR. Frente al SVD de la Feature 4, su ventaja no se distingue del ruido.
+- **Sin intervalos, la lectura habría sido otra:** el SVD le gana en promedio a la popularidad
+  por categoría, pero su intervalo cruza el cero y pierde en MRR (0,036 contra 0,041): encuentra
+  algo más de comercios nuevos, pero los pone más abajo en la lista.
+- **Los sustitutos casi no salen de la categoría:** el 99 % de los sustitutos de GraphSAGE
+  comparte el grupo de MCC del comercio, contra un 2 % a 27 % si se eligieran al azar.
+- **La redistribución cuadra:** de 16.322 millones de COP de volumen esperado perdido en la
+  ventana, 10.602 millones pasan a sustitutos y 5.720 millones salen del riel de tarjetas.
+- **GraphSAGE terminó por presupuesto y no por paciencia:** su mejor validación fue la de la
+  época 392 de 400.
+
+### Consecuencias a tener presentes
+
+- **Con estas anclas la curva es casi un umbral.** β = 34 deja a siete de los doce grupos en el
+  piso de 0,05 %, sin respuesta a un MDR 10 % más alto, y concentra el 88 % del volumen en riesgo
+  en mercado y combustible. No es un error del solver: pedir 1,8 pp de respuesta sobre una base
+  de 3,5 % equivale a que la tasa de abandono suba 51 % con un MDR 10 % más alto, y sobre esta
+  distribución de carga eso exige una curva muy empinada. Un optimizador leería esos siete grupos
+  como libres de costo de aceptación, así que el par de anclas hay que revisarlo antes de la
+  Feature 7.
+- **Los sustitutos refinan dentro de la categoría.** La categoría entra al GNN por los atributos
+  del comercio, y para repartir volumen sus vecinos se quedan en el mismo grupo de MCC casi
+  siempre.
+- **La curva no es evidencia.** Sus dos anclas son cifras propias y nunca vio un comercio dejar
+  de aceptar. Antes de usarla fuera del portafolio necesitan fuente publicada; la calibración no
+  cambia cuando lleguen, solo se edita `config/elasticity.yaml`.
+- **La escalera mide una estructura que plantó el generador.** Gane quien gane, gana
+  recuperando clientelas que existen en estos datos, no mostrando cómo compran los
+  tarjetahabientes colombianos.
+- **Los sustitutos son comercio a comercio.** Los rankings se aprenden de titular a comercio;
+  repartir el volumen de un comercio por similitud de vectores aproxima repartir el gasto de cada
+  cliente según su propio ranking.
+- **El volumen en riesgo es un valor esperado sobre la ventana de 24 meses.** Una probabilidad
+  anual por el volumen de la ventana es una escala, no un pronóstico; la Feature 6 lo convierte
+  en escenarios con su propio horizonte.
+
+### Fuentes
+
+- William L. Hamilton, Rex Ying y Jure Leskovec, *Inductive Representation Learning on Large
+  Graphs* (NeurIPS 2017).
+- Matthias Fey y Jan Eric Lenssen, *Fast Graph Representation Learning with PyTorch Geometric*
+  (ICLR 2019, workshop on Representation Learning on Graphs and Manifolds).
 
 ---
 

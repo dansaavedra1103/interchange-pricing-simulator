@@ -34,6 +34,7 @@ includes:
   mcc_groups: config/mcc_groups.yaml
   interchange_table: config/interchange_table.yaml
   economics: config/economics.yaml
+  elasticity: config/elasticity.yaml
 
 products: [debit, credit_standard, credit_premium, commercial]
 

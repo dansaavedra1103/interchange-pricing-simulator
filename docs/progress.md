@@ -2,83 +2,120 @@
 
 ## Feature en curso
 
-La Feature 4b (escalera de comparación y segmentación supervisada) está cerrada en la rama
-`feat/04b-supervised-segmentation`, con PR contra `main`. Siguiente según el orden de
-CLAUDE.md: **Feature 5 — Elasticidad**, que traerá la curva de abandono de aceptación y el link
-prediction.
+La Feature 5 (elasticidad y link prediction) está cerrada en la rama `feat/05-elasticidad`,
+con PR contra `main`. Siguiente según el orden de CLAUDE.md: **Feature 6 — Simulador de
+escenarios**, que encadenará la tarifa, el MDR, el abandono, las recompensas, el gasto y el P&L.
 
-## Feature 4b — Escalera de comparación y segmentación supervisada (cerrada)
+## Feature 5 — Elasticidad y link prediction (cerrada)
 
 ### Por qué
 
-La Feature 4 reportó que el grafo no le gana al baseline de atributos (R² fuera de muestra de
-0,077 contra 0,011). Al medir el techo después quedó claro que la comparación corría muy por
-debajo de él: **quedarse con el grupo de MCC del comercio, sin modelo, predice la carga
-relativa fuera de muestra con R² 0,740**. El k-means no supervisado comprimía doce categorías
-en ocho clústeres y tiraba justo lo que mueve el objetivo.
+El simulador necesita dos respuestas antes de tocar una tarifa: **cuánto** volumen se va cuando
+sube la carga de un comercio, y **a dónde** se va. Sin la primera, la Feature 7 no tiene función
+objetivo; sin la segunda, el volumen perdido desaparece en vez de moverse a otros comercios.
 
 ### Qué se hizo
 
-- **Benchmark sin modelo** (`segment_by_mcc_group`): cada comercio se queda en su grupo de MCC.
-  Es la referencia contra la que se lee toda la escalera.
-- **Segmentación supervisada** (`supervised.py`): los segmentos son las hojas de un árbol de
-  regresión sobre la carga relativa, ajustado solo con la mitad de entrenamiento, y cada
-  segmento viene con la regla que lo define.
-- **Una sola partición** (`evaluate.train_test_split`), compartida por todas las cifras fuera de
-  muestra. La evaluación ordena por `merchant_id` porque la partición es posicional: un join
-  que reordenara filas mediría al método supervisado sobre comercios que sí vio.
-- **Información marginal** (`evaluate.marginal_information`): el mismo predictor sobre cada
-  representación, sin el paso de clustering, para que ningún método se lleve el crédito de la
-  compresión en vez del de la información.
-- **Bloques de variables equilibrados** en el baseline.
-- **Arreglo en `normalized_mutual_info`:** emparejaba cada celda con la marginal de otra, porque
-  los joins reordenaban las filas, y podía devolver valores mayores que 1. El benchmark lo
-  destapó al marcar 1,308 contra el grupo de MCC; ahora marca exactamente 1.
-- **Tests nuevos:** el protocolo de fuga (barajar el objetivo de la mitad de prueba no mueve los
-  segmentos), la independencia de la evaluación respecto al orden de filas, la información
-  marginal sobre señal y ruido, y los límites de la NMI.
+- **Curva de aceptación** (`merchant_acceptance.py`): logística sobre la carga relativa, con
+  modificadores por canal, recargo permitido, presión del pago instantáneo y modelo de precio.
+- **Calibración por momentos** (`calibration.py`): bisección anidada que resuelve los dos
+  parámetros para reproducir dos anclas sobre la distribución real de la población. Se calibra
+  sobre la curva ya acotada, y el intervalo del intercepto se amplía solo, para no devolver un
+  extremo en silencio.
+- **Respuesta del titular** (`cardholder_response.py`): gasto log-lineal en la tasa de
+  recompensas, acotado.
+- **Escalera de link prediction** (`link_prediction.py`, `scorers.py`, `gnn.py`): partición
+  temporal sobre enlaces nuevos y cinco escalones —aleatorio, popularidad global, popularidad
+  dentro de las categorías del titular, PPMI+SVD y GraphSAGE en PyTorch Geometric—, con
+  recall@10, MRR, cobertura e intervalos bootstrap pareados detrás de cada veredicto.
+- **GraphSAGE sin atajos:** aristas divididas en paso de mensajes, ajuste y validación; se
+  conserva la época con mejor validación; un hilo y semilla fija.
+- **Sustitutos y redistribución:** los 10 vecinos de cada comercio en la representación
+  ganadora, calculados por bloques (la matriz completa pesaba ~6 GB), y un reparto del volumen
+  perdido que conserva el volumen, fuga incluida.
+- `python -m ips.tasks elasticity`, `config/elasticity.yaml`, el extra `gnn` (torch desde el
+  índice CPU, también en CI), el notebook 04 y los supuestos F5-01 a F5-17.
+- **Tests** (`tests/test_elasticity.py` y tres casos nuevos en `test_config.py`): monotonicidad
+  y modificadores de la curva, calibración, respuesta del titular, protocolo sin fuga,
+  determinismo del GNN, intervalos, sustitutos por bloques y conservación del volumen.
 
 ### Resultado (datos sintéticos, semilla 20260910)
 
-| Método | Segmentos | R² fuera de muestra | Lift decil | NMI con MCC | NMI con clientela |
-|---|---|---|---|---|---|
-| Grupo de MCC, sin modelo | 12 | 0,740 | 3,63 | 1,000 | 0,033 |
-| k-means, atributos | 10 | 0,081 | 1,55 | 0,213 | 0,059 |
-| k-means, grafo | 12 | 0,011 | 1,07 | 0,035 | **0,373** |
-| k-means, atributos + grafo | 12 | 0,069 | 1,52 | 0,200 | 0,220 |
-| Leiden | 8 (55 % cobertura) | 0,001 | 0,83 | 0,008 | 0,002 |
-| **Supervisada, atributos** | 12 | **0,751** | **3,81** | 0,838 | 0,033 |
-| Supervisada, atributos + grafo | 12 | 0,751 | 3,81 | 0,838 | 0,033 |
+La corrida completa toma ~8 minutos (7,5 de ellos en GraphSAGE) y dos corridas separadas dan
+artifacts idénticos bit a bit. La curva reproduce las dos anclas exactamente, con α = −35,06 y
+β = 34,01. Entrenan 40.000 titulares y se evalúan 2.000, sobre 5.047 enlaces nuevos.
 
-Información marginal con el mismo predictor: atributos 0,751; solo grafo 0,105; atributos +
-grafo 0,751, una diferencia de 0,000.
+| Método | recall@10 | Hit rate@10 | MRR | Cobertura |
+|---|---|---|---|---|
+| Aleatorio | 0,002 | 0,006 | 0,003 | 99,9 % |
+| Popularidad global | 0,038 | 0,090 | 0,030 | 0,6 % |
+| Popularidad en las categorías del titular | 0,044 | 0,101 | 0,041 | 4,6 % |
+| Embedding PPMI+SVD | 0,049 | 0,104 | 0,036 | 74,5 % |
+| **GraphSAGE** | **0,053** | **0,118** | **0,048** | 7,8 % |
 
-- **La segmentación supervisada es la que sirve** y viene con doce reglas legibles.
-- **El grafo no aporta nada sobre los atributos** para este objetivo, ni siquiera con un
-  predictor fuerte. La conclusión de la Feature 4 no cambia: se refuerza.
-- **El grafo sí encuentra la estructura que buscaba** (NMI 0,373 con la clientela plantada).
-  Esa estructura decide a dónde se va el volumen cuando un comercio deja de aceptar, que es
-  justo lo que mide la Feature 5.
+| Retador frente a referencia | Diferencia en recall@10 | IC 95 % | Veredicto |
+|---|---|---|---|
+| SVD frente a popularidad por categoría | +0,005 | −0,006 a +0,015 | No se distinguen |
+| GraphSAGE frente a popularidad por categoría | +0,008 | +0,002 a +0,015 | **Gana** |
+| GraphSAGE frente a SVD | +0,004 | −0,007 a +0,015 | No se distinguen |
+
+- **GraphSAGE es el único escalón que le gana al baseline fuerte sin grafo** con un intervalo que
+  no cruza el cero (+0,008 en recall@10, un 19 % relativo), y lidera también en hit rate y MRR.
+  El grafo gana su segunda audiencia, por poco.
+- **El SVD de la Feature 4 no se distingue de la popularidad por categoría, y GraphSAGE no se
+  distingue del SVD.** Sin los intervalos, las dos ventajas se habrían reportado como victorias.
+- **Con estas anclas la curva es casi un umbral:** siete de los doce grupos quedan en el piso de
+  0,05 % y no responden al MDR, y mercado y combustible concentran el 88 % del volumen en riesgo.
+- **Los sustitutos de GraphSAGE comparten el grupo de MCC el 99 % de las veces**, y la
+  redistribución cuadra al peso: de 16.322 millones de COP perdidos, 10.602 millones pasan a
+  sustitutos y 5.720 millones salen del riel de tarjetas.
 
 ### Decisiones
 
-- **Escalera completa** (decisión tuya): benchmark, supervisada e información marginal, en vez
-  de quedarse solo con la medición o solo con el arreglo de escalado.
-- **PR aparte** (decisión tuya): la Feature 4 se mergeó primero y esta revisión metodológica va
-  en su propio PR.
-- **El número de hojas se elige dentro de la mitad de entrenamiento**, nunca sobre la de prueba.
-- **Los segmentos supervisados sirven al objetivo con el que se cortaron:** para preguntas de
-  sustitución hay que volver a la representación del grafo.
+- **Calibración por momentos** (decisión tuya), no parámetros a mano.
+- **Escalera evaluada** (decisión tuya), con partición temporal y baselines sin grafo.
+- **Traer torch** (decisión tuya): GraphSAGE en PyG, sin `NeighborLoader`, así que no hacen
+  falta `pyg-lib` ni `torch-sparse`, que en Windows exigen compilación.
+- **Un solo par de parámetros para toda la población**, no uno por grupo como decía el plan:
+  calibrar por grupo le daría a todos la misma tasa de abandono. La heterogeneidad entre grupos
+  viene de `base_elasticity`.
+- **Las anclas quedaron marcadas [P], no [L]** como decía el plan: no hay una fuente publicada
+  verificada con esas cifras, y no se inventan citas.
+- **Las épocas las elige la validación**, nunca los meses reservados. Un primer barrido que las
+  elegía mirando la prueba se descartó.
+- **Una ventaja solo cuenta si su intervalo no cruza el cero.**
 
 ### Pendientes
 
-- **Leiden sigue siendo el más débil** y no se ajustó para favorecerlo: con menos poda subiría
-  la cobertura.
-- **El grafo merece una segunda audiencia en la Feature 5**, con la curva de abandono y el link
-  prediction.
-- Siguen de features anteriores: contrastar la tabla de interchange con Mastercard y Redeban;
-  anclas de BanRep 2025; el `.venv` local en 3.11.9; `CLAUDE.md` fuera del repo; cerrar los
-  notebooks que tengan abierto el warehouse antes de `dbt build`.
+- **Revisar el par de anclas antes de la Feature 7:** con 3,5 % y 1,8 pp la curva es casi un
+  umbral, y un optimizador vería siete grupos sin costo de aceptación. Las salidas son una
+  segunda ancla más suave o calibrar el nivel por grupo; es una decisión de supuestos, no de
+  código.
+- **Fuente publicada para las dos anclas de la curva** y para las semi-elasticidades de
+  recompensas. El framework no cambia: solo `config/elasticity.yaml`.
+- **Presupuesto de épocas del GNN en la corrida completa:** con 400 épocas la validación seguía
+  mejorando (mejor época, la 392). Un presupuesto mayor solo puede ayudarle a GraphSAGE.
+- **Sumar la probabilidad de abandono como columna de `graph/evaluate.py`**, como anticipaba la
+  Feature 4.
+- **Sustitutos comercio a comercio:** la redistribución exacta repartiría el gasto de cada
+  cliente según su propio ranking.
+- Siguen de features anteriores: Leiden sigue siendo el más débil; contrastar la tabla de
+  interchange con Mastercard y Redeban; anclas de BanRep 2025; el `.venv` local en 3.11.9;
+  `CLAUDE.md` fuera del repo; cerrar los notebooks que tengan abierto el warehouse antes de
+  `dbt build`.
+
+## Feature 4b — Escalera de comparación y segmentación supervisada (mergeada, PR #6)
+
+Benchmark sin modelo (`segment_by_mcc_group`), segmentación supervisada con una regla legible
+por segmento (`supervised.py`), una sola partición para todas las cifras fuera de muestra,
+información marginal por representación y el arreglo de `normalized_mutual_info`. Supuestos
+F4-10 a F4-14 en `docs/assumptions.md`:
+
+- quedarse con el grupo de MCC, sin modelo, predice la carga relativa fuera de muestra con R²
+  0,740, y la segmentación supervisada llega a 0,751;
+- con el mismo predictor, el grafo no suma nada sobre los atributos (0,751 contra 0,751);
+- el grafo sí recupera la clientela plantada (NMI 0,373), y quedó pendiente darle su segunda
+  audiencia en la sustitución, que es la Feature 5.
 
 ## Feature 4 — Segmentación con Graph ML (mergeada, PR #5)
 
