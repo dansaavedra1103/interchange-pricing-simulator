@@ -2,106 +2,113 @@
 
 ## Feature en curso
 
-La Feature 3 (unit economics y revenue analytics) está cerrada en la rama
-`feat/03-unit-economics`, con PR contra `main`. Siguiente según el orden de CLAUDE.md:
-**Feature 4 — Graph ML**, que debe ganarle a un k-means sobre atributos o reportar que no.
+La Feature 4 (segmentación con Graph ML) está cerrada en la rama `feat/04-graph-segmentation`,
+con PR contra `main`. Siguiente según el orden de CLAUDE.md: **Feature 5 — Elasticidad**, que
+traerá la curva de abandono de aceptación y el link prediction.
 
-## Feature 3 — Unit economics y revenue analytics (cerrada)
+## Feature 4 — Segmentación con Graph ML (cerrada)
 
 ### Qué se hizo
 
-- **`config/economics.yaml`**, incluido desde `base.yaml`, con sus modelos en
-  `utils/config.py` (`EconomicsConfig`):
-  - los fees de la red a cada lado: assessment, autorización y cross-border;
-  - el margen IC++, el recargo blended por tarjeta extranjera y el procesamiento del
-    adquirente;
-  - los costos del emisor por producto.
-- **`src/ips/economics/`:**
-  - `pnl.py` reemplaza a `simple_pnl.py`. `NetworkPnL`, `MerchantCost`, `IssuerPnL` y
-    `AcquirerPnL` arman la cascada de tarifas y los costos operativos. `compute_pnl` devuelve
-    el P&L por transacción y por actor, y `pnl_by` lo agrega por cualquier segmento;
-  - `metrics.py`: net revenue yield con sus drivers, interchange efectivo, contribución del
-    emisor y carga relativa;
-  - `revenue_bridge.py`: reparte el cambio del ingreso de la red entre dos períodos o
-    escenarios en volumen, participación cross-border, mezcla y tarifa, con valores de
-    Shapley;
-  - `params.py`: las tablas de referencia que lee el warehouse.
-- **Generador:** `merchants.pricing_model` (blended o IC++) según el adquirente y el tramo del
-  comercio. No consume números aleatorios, así que el resto de los datos no cambia.
-- **dbt:**
-  - fuente y staging de `pricing_terms`;
-  - `fct_transactions` con la cascada completa y los drivers del ingreso de la red;
-  - marts con emisor bruto, red y adquirente bruto;
-  - el test de conservación verifica también los drivers de la red;
-  - `python -m ips.tasks dbt` reescribe las tablas de referencia antes de construir.
-- **Calibración:** tarifas blended recalibradas por el fee fijo de autorización; margen IC++
-  de 0,20 % + 100 COP.
-- **Tests:** 88 rápidos (64 antes) y 2 lentos.
-  - `test_economics.py`: conservación contra un MDR recalculado por fuera y en 11
-    agregaciones, ejemplos calculados a mano (spec §1.2, IC++, micropago, cross-border,
-    premium con fraude con y sin contracargo), métricas, errores y rangos de calibración;
-  - `test_revenue_bridge.py`: los efectos suman el cambio, entradas iguales dan cero y cada
-    efecto puro aparece solo;
-  - `test_pipeline.py`: paridad SQL ↔ Python fila a fila en todas las columnas de la cascada.
-- **Notebooks:** `02_unit_economics.ipynb` (nuevo) con 7 gráficos y sus tablas. El 01 migra
-  al nuevo P&L y suma el yield de la red a la tabla de calibración.
-- Supuestos F3-01 a F3-13 en `docs/assumptions.md`; `docs/architecture.md` actualizado.
+- **`src/ips/graph/`**, que lee el warehouse y escribe artefactos, nunca al revés:
+  - `build_graph.py`: ventana de compras, matriz dispersa tarjetahabiente × comercio y
+    proyección comercio-comercio podada a los comercios habituales de cada tarjeta;
+  - `features.py`: perfil del comercio (atributos, mezcla de clientes y los dos objetivos:
+    interchange efectivo y carga relativa), con una sola definición para producción y tests;
+  - `spectral_embed.py`: PPMI sobre el grafo bipartito y SVD truncado;
+  - `baseline_kmeans.py`, `clustering.py`, `communities.py`: las cuatro segmentaciones
+    (atributos, embeddings, ambos, comunidades de Leiden), con k elegido por silueta;
+  - `evaluate.py` y `segment_profiles.py`: la tabla comparativa, la frase de veredicto y el
+    perfil de negocio de cada segmento;
+  - `pipeline.py`: orquestación, artefactos en `data/artifacts/`.
+- **`python -m ips.tasks segment`** (y `make segment`) corre todo y escribe embeddings,
+  segmentos, comparación y perfiles.
+- **Configuración:** sección `segmentation` en `base.yaml` con ventana, mínimo de compras,
+  dimensiones, rango de k, poda de la proyección y fracción de prueba.
+- **Dependencias:** extra `graph` con scikit-learn y scipy; la CI instala `.[dev,pipeline,graph]`.
+- **Tests:** 18 nuevos en `tests/test_graph.py` (108 rápidos en total), todos sobre la muestra y
+  sin dbt: grafo bien formado, ventana, poda, embeddings deterministas y que separan clientelas
+  plantadas, clustering reproducible, η² y R² fuera de muestra sobre casos de juguete, Leiden
+  contra etiquetas barajadas, perfiles y artefactos.
+- **`notebooks/03_segmentation_comparison.ipynb`** con la comparación y la conclusión explícita.
+- Supuestos F4-01 a F4-09 en `docs/assumptions.md`; `docs/architecture.md` actualizado.
 
 ### Resultado (datos sintéticos, semilla 20260910)
 
-- **Yield de la red: 28,1 pb del volumen** (15,0 de assessment, 7,2 de autorización y 5,9
-  cross-border). En 2025 Visa y Mastercard ingresaron ~29–31 pb netos de incentivos y ~37–38
-  pb brutos; el modelo no tiene incentivos ni servicios de valor agregado.
-- **De cada 100 COP de MDR:** 69,2 van al emisor, 13,4 a la red y 17,4 al adquirente. Tras
-  costos, el emisor conserva 33,4 y el adquirente 9,8.
-- **Adquirentes:** margen bruto de 0,45 % en blended doméstico (0,43–0,47 % por grupo) y de
-  0,26 % en IC++. Sobre las mismas compras, IC++ sale ~0,17 pp más barato en cada tramo.
-- **Emisores:** contribución de 0,69 % del volumen en débito y crédito estándar, 0,52 % en
-  premium y 1,08 % en comercial.
-- **Carga relativa:** la mediana llega a ~50 % del margen en alimentos, gasolina y viajes.
-- **Revenue bridge 2024 → 2025:** +244M COP, 99 % por volumen.
-- **`dbt build` sobre los 6M:** 80 de 80 nodos OK en ~16 s. Python y SQL coinciden fila a fila
-  en la muestra.
+28.438 comercios segmentados de 30.521 con compras; 5,8M aristas en 24 meses; la corrida
+completa toma ~35 s.
+
+| Método | Segmentos | η² interchange | η² carga | R² fuera de muestra | NMI clientela |
+|---|---|---|---|---|---|
+| Atributos (baseline) | 8 | 0,497 | 0,078 | **0,077** | 0,084 |
+| Grafo (embeddings) | 12 | 0,403 | 0,015 | 0,011 | **0,373** |
+| Híbrido | 12 | **0,583** | 0,073 | 0,069 | 0,212 |
+| Leiden | 8 (55 % de cobertura) | 0,045 | 0,002 | 0,001 | 0,002 |
+
+- **El grafo no le gana al baseline en la métrica de negocio** y así se reporta: para predecir
+  la carga relativa de un comercio que el modelo no vio, los atributos explican 0,077 y el
+  grafo 0,011. La razón es económica: la carga es MDR efectivo sobre margen sectorial, y el
+  margen es una propiedad del grupo de MCC, justo lo que el baseline codifica.
+- **El grafo sí aporta donde está el ingreso:** sumado a los atributos, sube la homogeneidad
+  del interchange efectivo de 0,497 a 0,583, casi 9 puntos, porque agrupa comercios que
+  comparten clientes y por eso comparten mezcla de tarjetas.
+- **El método funciona:** solo con el grafo, la segmentación recupera la clientela plantada por
+  el generador (NMI 0,373 contra 0,084 del baseline). Es diagnóstico del generador, no
+  evidencia sobre el mercado real.
+- **Leiden sobre la proyección podada es el más débil:** deja fuera al 45 % de los comercios y
+  explica casi nada; la poda a comercios habituales conserva señal de clientela pero pierde
+  cobertura.
+- **El veredicto aguanta el barrido de k:** entre 4 y 12 segmentos el grafo siempre queda
+  debajo del baseline. De paso aparece que la silueta no elige el k que le sirve al negocio: el
+  baseline pasa de 0,077 con k = 8 a 0,166 con k = 10.
+- **Las corridas son reproducibles:** dos ejecuciones separadas dan segmentos idénticos para
+  los 28.438 comercios.
 
 ### Decisiones
 
-- **IC++ desde ya** (decisión tuya): los bancos lo cobran a sus comercios grandes y medianos.
-- **Parámetros en `config/economics.yaml`** (decisión tuya).
-- **Montos en decimales** (decisión tuya): la conservación se cumple con tolerancia 1e-9. Cierra
-  el pendiente de liquidar en centavos.
-- **La contribución del emisor es economía de pagos**, sin intereses ni cartera revolvente.
-- **El modelo de precio es un dato del comercio** (`pricing_model`): Python y SQL leen la misma
-  columna, así que la regla no se duplica.
-- **SQL cubre la cascada** (la identidad de conservación) y Python suma los costos.
-- **Recargo blended de 1,5 pp por tarjeta extranjera**, nuevo respecto al plan: sin él, el
-  adquirente extranjero perdía ~1,3 % en cada compra premium cross-border. Los comercios del
-  exterior siguen en blended, como en el plan.
-- **Margen IC++ más bajo que el del plan** (0,20 % + 100 COP en vez de 0,35 % + 200): con el del
-  plan, IC++ les costaba a los comercios grandes lo mismo que blended.
-- **Assessment del emisor de 0,02 %** (el plan decía 0,05 %): con el 0,13 % del adquirente, los
-  assessments de ambos lados suman 0,15 %, el techo que fija la spec (§1.6).
-- **Gráficos del notebook 02:** la forma la decidió la skill de dataviz. El reparto del MDR es
-  una barra apilada (parte de un todo) y no una cascada; la contribución del emisor es un
-  dumbbell (bruto → contribución) y no barras divergentes. Se sumó un gráfico del margen del
-  emisor por tamaño de ticket.
+- **Embeddings espectrales, no node2vec** (decisión tuya): PPMI + SVD truncado es la
+  factorización matricial que las caminatas aleatorias aproximan (Qiu et al., 2018). Sin torch
+  ni gensim, determinista y en segundos, así que la CI lo corre.
+- **La carga relativa como sustituto del abandono** (decisión tuya): es el predictor que la
+  spec nombra. Cuando la Feature 5 traiga la curva, `evaluate.py` suma la métrica real como una
+  columna más.
+- **Segmentos como artefactos** (decisión tuya) en `data/artifacts/segments/`, no en el
+  warehouse: `dbt build` no depende de que un modelo haya corrido.
+- **Sin mart nuevo:** el perfil del comercio se calcula una sola vez en Python, así los tests
+  del grafo corren sobre la muestra sin dbt.
+- **Cuarto método, el híbrido** (no estaba en el plan): responde la pregunta que sigue a la
+  comparación, si el grafo agrega algo sobre lo que el banco ya sabe. Sin él, la conclusión se
+  queda en "no gana" sin decir dónde sí sirve.
+- **La proyección se poda a los comercios habituales de cada tarjeta:** sin ese tope genera
+  ~10^8 pares y una tarjeta que compra en todas partes conecta todo con todo.
+- **La clientela plantada es diagnóstico, nunca criterio:** el veredicto lo decide la métrica
+  de negocio fuera de muestra.
 
 ### Pendientes
 
-- **Micropagos:** en el tramo reducido, el fee fijo de autorización del emisor supera al
-  interchange, y el emisor pierde antes de costos en ~22 % de las compras con débito. Es una
-  palanca para el optimizador.
-- **Transporte:** con tickets de ~16.000 COP, el procesamiento fijo deja al adquirente con
-  contribución negativa.
-- **Adquirente extranjero:** margen bruto de ~0,1 % en la parte de su negocio con tarjetas
-  colombianas, la única que ve el modelo.
-- No se modelan incentivos a clientes, servicios de valor agregado ni costos de la red.
-- Siguen de la F2:
-  - contrastar la tabla de interchange con las de Mastercard y Redeban (Decreto 1692 de 2020);
-  - actualizar las anclas de calibración con las cifras de 2025 de BanRep;
-  - el `.venv` local sigue en Python 3.11.9 (la CI cubre 3.12);
-  - `CLAUDE.md` vive en `C:\Users\USUARIO\` y no en el repo;
-  - DuckDB admite un escritor o varios lectores: hay que cerrar los notebooks que tengan
-    abierto el warehouse antes de correr `dbt build`.
+- **Leiden merece otra proyección:** con más vecinos o menos poda subiría la cobertura; hoy es
+  el método más débil y no se ajustó para favorecerlo.
+- **El híbrido no mejora la carga relativa**, solo el interchange: queda ver en la Feature 5 si
+  ayuda a predecir el abandono real.
+- **Link prediction** (spec §2.5) es de la Feature 5: estimar el volumen que se redistribuye
+  cuando un comercio deja de aceptar.
+- Siguen de features anteriores: contrastar la tabla de interchange con Mastercard y Redeban;
+  anclas de BanRep 2025; el `.venv` local en 3.11.9; `CLAUDE.md` fuera del repo; cerrar los
+  notebooks que tengan abierto el warehouse antes de `dbt build`.
+
+## Feature 3 — Unit economics y revenue analytics (mergeada, PR #4)
+
+P&L en dos capas: la cascada de tarifas que cumple la conservación (emisor bruto + red +
+adquirente bruto = MDR) y los costos operativos que dan la contribución de cada actor, con
+precio blended o IC++ por comercio. Métricas (yield, interchange efectivo, contribución del
+emisor, carga relativa), revenue bridge por Shapley y el notebook 02. Supuestos F3-01 a F3-13
+en `docs/assumptions.md`:
+
+- yield de la red de 28,1 pb; de cada 100 COP de MDR, 69,2 al emisor, 13,4 a la red y 17,4 al
+  adquirente;
+- margen bruto del adquirente de 0,45 % en blended y 0,26 % en IC++;
+- recargo de 1,5 pp por tarjeta extranjera y tarifas blended recalibradas por el fee fijo de
+  autorización.
 
 ## Feature 2 — Pipeline y datasets analíticos (mergeada, PR #3)
 

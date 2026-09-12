@@ -64,6 +64,38 @@ flowchart LR
   on the order of the drivers.
 - `notebooks/02_unit_economics.ipynb` is the static dashboard of this layer.
 
+## Merchant segmentation (Feature 4)
+
+A separate layer that reads the warehouse and writes model artifacts, never the other way
+round, so `dbt build` never depends on a model having run.
+
+```mermaid
+flowchart LR
+    edges["mart_graph_edges"] --> graph["build_graph<br/>bipartite matrix · projection"]
+    fct["fct_transactions · dim_merchant"] --> profile["features<br/>merchant profile"]
+    graph --> embed["spectral_embed<br/>PPMI + truncated SVD"]
+    profile --> baseline["baseline_kmeans<br/>tabular features"]
+    embed --> clusters["clustering<br/>k-means, k by silhouette"]
+    baseline --> clusters
+    graph --> leiden["communities<br/>Leiden"]
+    clusters --> evaluate["evaluate<br/>homogeneity · out-of-sample · interpretability"]
+    leiden --> evaluate
+    profile --> evaluate
+    evaluate --> artifacts[("data/artifacts/segments")]
+```
+
+| Module | What it does |
+|---|---|
+| `build_graph.py` | Window, cardholder x merchant sparse matrix, merchant projection pruned to each card's habitual merchants |
+| `features.py` | Merchant profile: attributes, customer mix and the two targets (effective interchange, relative burden) |
+| `spectral_embed.py` | PPMI over the bipartite weights plus a truncated SVD — the matrix factorisation that random-walk embeddings approximate (Qiu et al., 2018) |
+| `baseline_kmeans.py`, `clustering.py`, `communities.py` | The four segmentations: attributes, embeddings, both together, and Leiden communities |
+| `evaluate.py`, `segment_profiles.py` | The comparison table, the verdict sentence and the business profile of each segment |
+| `pipeline.py` | Orchestration; `python -m ips.tasks segment` writes the artifacts |
+
+Everything is seeded from `config/base.yaml`: the same seed gives bit-identical embeddings and
+labels.
+
 ## Guarantees
 
 - **P&L conservation** (`dbt/tests/assert_pnl_conservation.sql`, `tests/test_economics.py`):
@@ -83,6 +115,7 @@ flowchart LR
 python -m ips.tasks generate        # data/raw (use --sample for the small dataset)
 python -m ips.tasks dbt             # reference tables from config, then dbt build
 python -m ips.tasks docs --serve    # dbt docs with the lineage graph
+python -m ips.tasks segment         # merchant segmentation and the comparison (Feature 4)
 python -m ips.tasks test            # pytest + ruff
 python -m ips.tasks all             # generate, dbt and test, in order
 ```

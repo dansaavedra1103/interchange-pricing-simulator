@@ -28,6 +28,7 @@ sample_sizes:
 output:
   raw_dir: data/raw
   warehouse_path: data/warehouse/ips.duckdb
+  artifacts_dir: data/artifacts
 
 includes:
   mcc_groups: config/mcc_groups.yaml
@@ -170,6 +171,30 @@ amounts:
   # Calibrado para un ticket promedio de ~131k COP en débito y ~244k en crédito
   # (Superfinanciera 2022: 114k y 212k, ajustados por ~15 % de inflación 2023-2024).
   product_multiplier: {debit: 0.75, credit_standard: 1.0, credit_premium: 1.35, commercial: 1.65}
+
+# Segmentación de comercios (Feature 4). Hiperparámetros del modelo, no del negocio: fijan
+# qué compras entran al grafo y cuántos segmentos se exploran.
+segmentation:
+  # Ventana de compras que alimenta el grafo, en meses hasta la última compra.
+  window_months: 24
+  # Un comercio con menos compras que esto no entra al clustering: su vector es ruido.
+  min_purchases: 10
+  # Dimensiones del embedding espectral y desplazamiento del PPMI (el k negativo de SGNS).
+  embedding_dims: 64
+  ppmi_shift: 1.0
+  # Rango de k que se explora; se elige por silueta sobre una submuestra.
+  k_range: [4, 12]
+  silhouette_sample: 5000
+  # Proyección comercio-comercio para Leiden: dos comercios se conectan si están entre los
+  # habituales de una misma tarjeta. Sin ese tope, la proyección genera ~10^8 pares.
+  projection_top_merchants: 10
+  projection_max_neighbors: 30
+  projection_min_weight: 3
+  leiden_resolution: 1.0
+  # Comercios que se reservan para medir el poder predictivo fuera de muestra.
+  test_fraction: 0.3
+  # Una tarjeta que compra en cientos de comercios no señala clientela: se deja fuera del grafo.
+  max_cardholder_degree: 200
 
 fraud:
   # Calibrado para que el resultado reproduzca la estructura del BCE (2023) y el nivel de la

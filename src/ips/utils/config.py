@@ -131,6 +131,7 @@ class OutputConfig(_Frozen):
 
     raw_dir: Path
     warehouse_path: Path
+    artifacts_dir: Path
 
 
 class Includes(_Frozen):
@@ -320,6 +321,35 @@ class AmountsConfig(_Frozen):
     product_multiplier: dict[str, Positive]
 
 
+class SegmentationConfig(_Frozen):
+    """Hyperparameters of the merchant segmentation (Feature 4)."""
+
+    window_months: int = Field(gt=0)
+    min_purchases: int = Field(gt=0)
+    embedding_dims: int = Field(gt=1)
+    ppmi_shift: Positive
+    k_range: tuple[int, int]
+    silhouette_sample: int = Field(gt=0)
+    projection_top_merchants: int = Field(gt=1)
+    projection_max_neighbors: int = Field(gt=0)
+    projection_min_weight: int = Field(gt=0)
+    leiden_resolution: Positive
+    test_fraction: float = Field(gt=0.0, lt=1.0)
+    max_cardholder_degree: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _check_k_range(self) -> SegmentationConfig:
+        low, high = self.k_range
+        if not 2 <= low <= high:
+            raise ValueError(f"segmentation.k_range must satisfy 2 <= low <= high: {self.k_range}")
+        return self
+
+    @property
+    def k_values(self) -> tuple[int, ...]:
+        """Candidate numbers of segments, both ends included."""
+        return tuple(range(self.k_range[0], self.k_range[1] + 1))
+
+
 class FraudConfig(_Frozen):
     """Fraud and chargeback probabilities."""
 
@@ -479,6 +509,7 @@ class ProjectConfig(_Frozen):
     seasonality: SeasonalityConfig
     amounts: AmountsConfig
     fraud: FraudConfig
+    segmentation: SegmentationConfig
     mcc_groups: MccGroupsConfig
     interchange_table: InterchangeTableConfig
     economics: EconomicsConfig

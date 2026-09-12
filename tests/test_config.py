@@ -83,6 +83,8 @@ CASES = {
         "less than 0.1",
     ),
     "unknown_icpp_tier": (_set(["merchants", "icpp_tiers"], ["huge"]), "icpp_tiers"),
+    "k_range_backwards": (_set(["segmentation", "k_range"], [12, 4]), "k_range"),
+    "test_fraction_too_high": (_set(["segmentation", "test_fraction"], 1.5), "less than 1"),
     "small_ticket_product": (
         _set(["interchange_table", "small_ticket", "products"], ["prepaid"]),
         "small_ticket.products",
