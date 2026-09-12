@@ -46,6 +46,13 @@ def read_raw(name: str, cfg: ProjectConfig | None = None) -> pl.DataFrame:
     return pl.read_parquet(raw_path(name, cfg))
 
 
+def artifacts_dir(cfg: ProjectConfig | None = None) -> Path:
+    """Directory for model artifacts (embeddings, segments), created if missing."""
+    path = resolve_path(_config(cfg).output.artifacts_dir)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def warehouse_path(cfg: ProjectConfig | None = None) -> Path:
     """Path of the DuckDB warehouse file."""
     return resolve_path(_config(cfg).output.warehouse_path)

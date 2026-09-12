@@ -220,6 +220,82 @@ contribución.
 
 ---
 
+## Feature 4 — Segmentación con Graph ML (vigente)
+
+La pregunta es de negocio: ¿segmentar comercios por **quién les compra** sirve más, para fijar
+precios, que segmentarlos por sus atributos? El baseline es lo que hace la industria (k-means
+sobre MCC, tamaño, ticket, canal y mezcla de tarjetas) y el retador es el grafo bipartito
+tarjetahabiente-comercio. La respuesta se decide con métricas de negocio, no con la calidad
+visual de los clústeres.
+
+### Grafo y representación
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F4-01 | El grafo son las compras de los últimos 24 meses; una arista es una tarjeta que le compró a un comercio, con peso igual al número de compras | [P] | `base.yaml: segmentation.window_months`, `build_graph.py` |
+| F4-02 | Una tarjeta con más de 200 comercios distintos no señala clientela y se deja fuera; un comercio con menos de 10 compras no entra al clustering, aunque sí recibe vector | [P] | `base.yaml: segmentation`, `features.py` |
+| F4-03 | Embeddings espectrales: PPMI sobre los pesos del grafo y SVD truncado a 64 dimensiones, con desplazamiento 1 (el k de muestras negativas de word2vec). Es la factorización matricial que DeepWalk y node2vec aproximan, así que sustituye a `node2vec_embed.py` y `graphsage_embed.py` de la spec | Equivalencia [L: Levy y Goldberg 2014; Qiu et al. 2018]; dimensiones y desplazamiento [P] | `spectral_embed.py` |
+| F4-04 | El número de segmentos se elige por silueta entre 4 y 12, sobre una submuestra de 5.000 comercios | [P] | `base.yaml: segmentation.k_range`, `clustering.py` |
+| F4-05 | La proyección comercio-comercio solo une comercios que están entre los 10 habituales de una misma tarjeta, con peso mínimo de 3 tarjetas y 30 vecinos por comercio. Sin esa poda la proyección tiene ~10^8 pares y una tarjeta que compra en todas partes conecta todo con todo | [P] | `base.yaml: segmentation`, `build_graph.py` |
+| F4-06 | El híbrido concatena atributos y embeddings escalando cada bloque a la misma norma media por fila: sin eso, el bloque con más columnas domina la distancia | [P] | `clustering.py: combine_spaces` |
+
+### Evaluación
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F4-07 | La carga relativa es el sustituto del abandono de aceptación hasta la Feature 5, porque la spec la señala como su mejor predictor. La métrica de negocio es el R² fuera de muestra: se reserva el 30 % de los comercios, se predice cada uno con la media de su segmento en el 70 % restante y se compara contra predecir la media global | [S §2.4, §2.5]; diseño [P] | `base.yaml: segmentation.test_fraction`, `evaluate.py` |
+| F4-08 | La homogeneidad del interchange efectivo se pondera por volumen, porque ahí está el ingreso; la de la carga relativa va por comercio, porque dejar de aceptar es una decisión por comercio | [P] | `evaluate.py` |
+| F4-09 | La clientela latente que plantó el generador (F1-16) se usa solo como diagnóstico del método, nunca como criterio de éxito: el veredicto lo decide la métrica de negocio | [P], criterio de honestidad de CLAUDE.md | `evaluate.py`, notebook 03 |
+
+### Resultado (datos sintéticos, semilla 20260910)
+
+28.438 comercios de 30.521 con compras, 4,3M aristas y 150.000 tarjetas; la corrida completa
+toma ~35 s.
+
+| Método | Segmentos | η² interchange | η² carga | R² fuera de muestra | NMI con clientela |
+|---|---|---|---|---|---|
+| Atributos (baseline) | 8 | 0,497 | 0,078 | **0,077** | 0,084 |
+| Grafo (embeddings) | 12 | 0,403 | 0,015 | 0,011 | **0,373** |
+| Híbrido | 12 | **0,583** | 0,073 | 0,069 | 0,212 |
+| Leiden | 8 (55 % de cobertura) | 0,045 | 0,002 | 0,001 | 0,002 |
+
+- **El grafo no le gana al baseline en la métrica de negocio.** Para predecir la carga
+  relativa de un comercio que el modelo no vio, los atributos explican 0,077 y el grafo 0,011.
+  La razón es económica y no del método: la carga es MDR efectivo sobre margen sectorial, y el
+  margen es una propiedad del grupo de MCC, justo lo que el baseline codifica.
+- **El grafo sí aporta donde está el ingreso.** Sumado a los atributos sube la homogeneidad del
+  interchange efectivo de 0,497 a 0,583: agrupa comercios que comparten clientes y por eso
+  comparten mezcla de tarjetas.
+- **El método funciona sobre estos datos:** solo con el grafo, la segmentación recupera la
+  clientela plantada (NMI 0,373 frente a 0,084 del baseline).
+- **Leiden sobre la proyección podada es el más débil:** cubre el 55 % de los comercios y
+  explica casi nada. La poda conserva señal de clientela pero pierde cobertura.
+- **El veredicto no depende del número de segmentos:** barriendo k de 4 a 12, el grafo queda
+  por debajo del baseline en todos los casos (0,003–0,011 contra 0,031–0,166).
+- **La silueta no elige el k que le sirve al negocio:** el baseline vale 0,166 con k = 10 y
+  0,077 con el k = 8 que eligió la silueta. Elegir k por la métrica de negocio sería el
+  siguiente paso y exigiría su propia partición de prueba para no sobreajustar.
+
+### Consecuencias a tener presentes
+
+- Los resultados dependen de que el generador haya plantado la estructura que el grafo busca.
+  Que la recupere muestra que el método funciona con estos datos, no que los comercios
+  colombianos se agrupen así.
+- La comparación se decide fuera de muestra a propósito: la homogeneidad dentro del clúster
+  siempre mejora al partir en más segmentos, y Leiden elige su propio número de comunidades.
+- La Feature 5 traerá la curva de abandono; `evaluate.py` la sumará como una columna más y la
+  comparación se rehará con la métrica real.
+
+### Fuentes
+
+- Omer Levy y Yoav Goldberg, *Neural Word Embedding as Implicit Matrix Factorization*
+  (NeurIPS 2014).
+- Jiezhong Qiu et al.,
+  [*Network Embedding as Matrix Factorization: Unifying DeepWalk, LINE, PTE, and node2vec*](https://arxiv.org/abs/1710.02971)
+  (WSDM 2018).
+
+---
+
 ## Feature 0 — Vertical slice (retirada en la Feature 1)
 
 El generador simple de la Feature 0 se retiró. Sus supuestos F0-01 a F0-12 (emisores,

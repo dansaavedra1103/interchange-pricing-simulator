@@ -2,7 +2,7 @@
 # On Windows, run the same tasks directly: python -m ips.tasks <task>
 PY ?= python
 
-.PHONY: generate sample dbt docs test all
+.PHONY: generate sample dbt docs segment test all
 
 generate:
 	$(PY) -m ips.tasks generate
@@ -15,6 +15,9 @@ dbt:
 
 docs:
 	$(PY) -m ips.tasks docs
+
+segment:
+	$(PY) -m ips.tasks segment
 
 test:
 	$(PY) -m ips.tasks test
