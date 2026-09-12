@@ -2,99 +2,95 @@
 
 ## Feature en curso
 
-La Feature 4 (segmentación con Graph ML) está cerrada en la rama `feat/04-graph-segmentation`,
-con PR contra `main`. Siguiente según el orden de CLAUDE.md: **Feature 5 — Elasticidad**, que
-traerá la curva de abandono de aceptación y el link prediction.
+La Feature 4b (escalera de comparación y segmentación supervisada) está cerrada en la rama
+`feat/04b-supervised-segmentation`, con PR contra `main`. Siguiente según el orden de
+CLAUDE.md: **Feature 5 — Elasticidad**, que traerá la curva de abandono de aceptación y el link
+prediction.
 
-## Feature 4 — Segmentación con Graph ML (cerrada)
+## Feature 4b — Escalera de comparación y segmentación supervisada (cerrada)
+
+### Por qué
+
+La Feature 4 reportó que el grafo no le gana al baseline de atributos (R² fuera de muestra de
+0,077 contra 0,011). Al medir el techo después quedó claro que la comparación corría muy por
+debajo de él: **quedarse con el grupo de MCC del comercio, sin modelo, predice la carga
+relativa fuera de muestra con R² 0,740**. El k-means no supervisado comprimía doce categorías
+en ocho clústeres y tiraba justo lo que mueve el objetivo.
 
 ### Qué se hizo
 
-- **`src/ips/graph/`**, que lee el warehouse y escribe artefactos, nunca al revés:
-  - `build_graph.py`: ventana de compras, matriz dispersa tarjetahabiente × comercio y
-    proyección comercio-comercio podada a los comercios habituales de cada tarjeta;
-  - `features.py`: perfil del comercio (atributos, mezcla de clientes y los dos objetivos:
-    interchange efectivo y carga relativa), con una sola definición para producción y tests;
-  - `spectral_embed.py`: PPMI sobre el grafo bipartito y SVD truncado;
-  - `baseline_kmeans.py`, `clustering.py`, `communities.py`: las cuatro segmentaciones
-    (atributos, embeddings, ambos, comunidades de Leiden), con k elegido por silueta;
-  - `evaluate.py` y `segment_profiles.py`: la tabla comparativa, la frase de veredicto y el
-    perfil de negocio de cada segmento;
-  - `pipeline.py`: orquestación, artefactos en `data/artifacts/`.
-- **`python -m ips.tasks segment`** (y `make segment`) corre todo y escribe embeddings,
-  segmentos, comparación y perfiles.
-- **Configuración:** sección `segmentation` en `base.yaml` con ventana, mínimo de compras,
-  dimensiones, rango de k, poda de la proyección y fracción de prueba.
-- **Dependencias:** extra `graph` con scikit-learn y scipy; la CI instala `.[dev,pipeline,graph]`.
-- **Tests:** 18 nuevos en `tests/test_graph.py` (108 rápidos en total), todos sobre la muestra y
-  sin dbt: grafo bien formado, ventana, poda, embeddings deterministas y que separan clientelas
-  plantadas, clustering reproducible, η² y R² fuera de muestra sobre casos de juguete, Leiden
-  contra etiquetas barajadas, perfiles y artefactos.
-- **`notebooks/03_segmentation_comparison.ipynb`** con la comparación y la conclusión explícita.
-- Supuestos F4-01 a F4-09 en `docs/assumptions.md`; `docs/architecture.md` actualizado.
+- **Benchmark sin modelo** (`segment_by_mcc_group`): cada comercio se queda en su grupo de MCC.
+  Es la referencia contra la que se lee toda la escalera.
+- **Segmentación supervisada** (`supervised.py`): los segmentos son las hojas de un árbol de
+  regresión sobre la carga relativa, ajustado solo con la mitad de entrenamiento, y cada
+  segmento viene con la regla que lo define.
+- **Una sola partición** (`evaluate.train_test_split`), compartida por todas las cifras fuera de
+  muestra. La evaluación ordena por `merchant_id` porque la partición es posicional: un join
+  que reordenara filas mediría al método supervisado sobre comercios que sí vio.
+- **Información marginal** (`evaluate.marginal_information`): el mismo predictor sobre cada
+  representación, sin el paso de clustering, para que ningún método se lleve el crédito de la
+  compresión en vez del de la información.
+- **Bloques de variables equilibrados** en el baseline.
+- **Arreglo en `normalized_mutual_info`:** emparejaba cada celda con la marginal de otra, porque
+  los joins reordenaban las filas, y podía devolver valores mayores que 1. El benchmark lo
+  destapó al marcar 1,308 contra el grupo de MCC; ahora marca exactamente 1.
+- **Tests nuevos:** el protocolo de fuga (barajar el objetivo de la mitad de prueba no mueve los
+  segmentos), la independencia de la evaluación respecto al orden de filas, la información
+  marginal sobre señal y ruido, y los límites de la NMI.
 
 ### Resultado (datos sintéticos, semilla 20260910)
 
-28.438 comercios segmentados de 30.521 con compras; 5,8M aristas en 24 meses; la corrida
-completa toma ~35 s.
-
-| Método | Segmentos | η² interchange | η² carga | R² fuera de muestra | NMI clientela |
+| Método | Segmentos | R² fuera de muestra | Lift decil | NMI con MCC | NMI con clientela |
 |---|---|---|---|---|---|
-| Atributos (baseline) | 8 | 0,497 | 0,078 | **0,077** | 0,084 |
-| Grafo (embeddings) | 12 | 0,403 | 0,015 | 0,011 | **0,373** |
-| Híbrido | 12 | **0,583** | 0,073 | 0,069 | 0,212 |
-| Leiden | 8 (55 % de cobertura) | 0,045 | 0,002 | 0,001 | 0,002 |
+| Grupo de MCC, sin modelo | 12 | 0,740 | 3,63 | 1,000 | 0,033 |
+| k-means, atributos | 10 | 0,081 | 1,55 | 0,213 | 0,059 |
+| k-means, grafo | 12 | 0,011 | 1,07 | 0,035 | **0,373** |
+| k-means, atributos + grafo | 12 | 0,069 | 1,52 | 0,200 | 0,220 |
+| Leiden | 8 (55 % cobertura) | 0,001 | 0,83 | 0,008 | 0,002 |
+| **Supervisada, atributos** | 12 | **0,751** | **3,81** | 0,838 | 0,033 |
+| Supervisada, atributos + grafo | 12 | 0,751 | 3,81 | 0,838 | 0,033 |
 
-- **El grafo no le gana al baseline en la métrica de negocio** y así se reporta: para predecir
-  la carga relativa de un comercio que el modelo no vio, los atributos explican 0,077 y el
-  grafo 0,011. La razón es económica: la carga es MDR efectivo sobre margen sectorial, y el
-  margen es una propiedad del grupo de MCC, justo lo que el baseline codifica.
-- **El grafo sí aporta donde está el ingreso:** sumado a los atributos, sube la homogeneidad
-  del interchange efectivo de 0,497 a 0,583, casi 9 puntos, porque agrupa comercios que
-  comparten clientes y por eso comparten mezcla de tarjetas.
-- **El método funciona:** solo con el grafo, la segmentación recupera la clientela plantada por
-  el generador (NMI 0,373 contra 0,084 del baseline). Es diagnóstico del generador, no
-  evidencia sobre el mercado real.
-- **Leiden sobre la proyección podada es el más débil:** deja fuera al 45 % de los comercios y
-  explica casi nada; la poda a comercios habituales conserva señal de clientela pero pierde
-  cobertura.
-- **El veredicto aguanta el barrido de k:** entre 4 y 12 segmentos el grafo siempre queda
-  debajo del baseline. De paso aparece que la silueta no elige el k que le sirve al negocio: el
-  baseline pasa de 0,077 con k = 8 a 0,166 con k = 10.
-- **Las corridas son reproducibles:** dos ejecuciones separadas dan segmentos idénticos para
-  los 28.438 comercios.
+Información marginal con el mismo predictor: atributos 0,751; solo grafo 0,105; atributos +
+grafo 0,751, una diferencia de 0,000.
+
+- **La segmentación supervisada es la que sirve** y viene con doce reglas legibles.
+- **El grafo no aporta nada sobre los atributos** para este objetivo, ni siquiera con un
+  predictor fuerte. La conclusión de la Feature 4 no cambia: se refuerza.
+- **El grafo sí encuentra la estructura que buscaba** (NMI 0,373 con la clientela plantada).
+  Esa estructura decide a dónde se va el volumen cuando un comercio deja de aceptar, que es
+  justo lo que mide la Feature 5.
 
 ### Decisiones
 
-- **Embeddings espectrales, no node2vec** (decisión tuya): PPMI + SVD truncado es la
-  factorización matricial que las caminatas aleatorias aproximan (Qiu et al., 2018). Sin torch
-  ni gensim, determinista y en segundos, así que la CI lo corre.
-- **La carga relativa como sustituto del abandono** (decisión tuya): es el predictor que la
-  spec nombra. Cuando la Feature 5 traiga la curva, `evaluate.py` suma la métrica real como una
-  columna más.
-- **Segmentos como artefactos** (decisión tuya) en `data/artifacts/segments/`, no en el
-  warehouse: `dbt build` no depende de que un modelo haya corrido.
-- **Sin mart nuevo:** el perfil del comercio se calcula una sola vez en Python, así los tests
-  del grafo corren sobre la muestra sin dbt.
-- **Cuarto método, el híbrido** (no estaba en el plan): responde la pregunta que sigue a la
-  comparación, si el grafo agrega algo sobre lo que el banco ya sabe. Sin él, la conclusión se
-  queda en "no gana" sin decir dónde sí sirve.
-- **La proyección se poda a los comercios habituales de cada tarjeta:** sin ese tope genera
-  ~10^8 pares y una tarjeta que compra en todas partes conecta todo con todo.
-- **La clientela plantada es diagnóstico, nunca criterio:** el veredicto lo decide la métrica
-  de negocio fuera de muestra.
+- **Escalera completa** (decisión tuya): benchmark, supervisada e información marginal, en vez
+  de quedarse solo con la medición o solo con el arreglo de escalado.
+- **PR aparte** (decisión tuya): la Feature 4 se mergeó primero y esta revisión metodológica va
+  en su propio PR.
+- **El número de hojas se elige dentro de la mitad de entrenamiento**, nunca sobre la de prueba.
+- **Los segmentos supervisados sirven al objetivo con el que se cortaron:** para preguntas de
+  sustitución hay que volver a la representación del grafo.
 
 ### Pendientes
 
-- **Leiden merece otra proyección:** con más vecinos o menos poda subiría la cobertura; hoy es
-  el método más débil y no se ajustó para favorecerlo.
-- **El híbrido no mejora la carga relativa**, solo el interchange: queda ver en la Feature 5 si
-  ayuda a predecir el abandono real.
-- **Link prediction** (spec §2.5) es de la Feature 5: estimar el volumen que se redistribuye
-  cuando un comercio deja de aceptar.
+- **Leiden sigue siendo el más débil** y no se ajustó para favorecerlo: con menos poda subiría
+  la cobertura.
+- **El grafo merece una segunda audiencia en la Feature 5**, con la curva de abandono y el link
+  prediction.
 - Siguen de features anteriores: contrastar la tabla de interchange con Mastercard y Redeban;
   anclas de BanRep 2025; el `.venv` local en 3.11.9; `CLAUDE.md` fuera del repo; cerrar los
   notebooks que tengan abierto el warehouse antes de `dbt build`.
+
+## Feature 4 — Segmentación con Graph ML (mergeada, PR #5)
+
+`src/ips/graph/`: grafo bipartito tarjetahabiente-comercio con ventana y proyección podada,
+embeddings espectrales (PPMI + SVD truncado), perfil del comercio, las segmentaciones no
+supervisadas (atributos, grafo, ambos y comunidades de Leiden), la evaluación con su frase de
+veredicto, los perfiles de segmento y `python -m ips.tasks segment`. Extra `graph` con
+scikit-learn y scipy, notebook 03 y supuestos F4-01 a F4-09 en `docs/assumptions.md`:
+
+- el grafo no le gana al baseline de atributos en la métrica de negocio, y así se reportó;
+- el grafo sí recupera la clientela que plantó el generador (NMI 0,373 contra 0,059);
+- dos corridas separadas dan segmentos idénticos para los 28.438 comercios.
 
 ## Feature 3 — Unit economics y revenue analytics (mergeada, PR #4)
 

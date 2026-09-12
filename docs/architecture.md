@@ -89,12 +89,25 @@ flowchart LR
 | `build_graph.py` | Window, cardholder x merchant sparse matrix, merchant projection pruned to each card's habitual merchants |
 | `features.py` | Merchant profile: attributes, customer mix and the two targets (effective interchange, relative burden) |
 | `spectral_embed.py` | PPMI over the bipartite weights plus a truncated SVD — the matrix factorisation that random-walk embeddings approximate (Qiu et al., 2018) |
-| `baseline_kmeans.py`, `clustering.py`, `communities.py` | The four segmentations: attributes, embeddings, both together, and Leiden communities |
-| `evaluate.py`, `segment_profiles.py` | The comparison table, the verdict sentence and the business profile of each segment |
+| `baseline_kmeans.py`, `clustering.py`, `communities.py` | The MCC-group benchmark and the unsupervised segmentations: attributes, embeddings, both together, and Leiden communities |
+| `supervised.py` | Segments as the leaves of a regression tree over the business target, fitted on the training half only, each with the rule that defines it |
+| `evaluate.py`, `segment_profiles.py` | The ladder, the shared train/test split, the marginal information of each representation, the verdict sentences and the business profile of each segment |
 | `pipeline.py` | Orchestration; `python -m ips.tasks segment` writes the artifacts |
 
 Everything is seeded from `config/base.yaml`: the same seed gives bit-identical embeddings and
 labels.
+
+Methods are compared on a ladder, and each rung answers a different objection:
+
+| Rung | Method | What it answers |
+|---|---|---|
+| Benchmark | `mcc_group` | Does any of this beat leaving merchants in their own category? |
+| Unsupervised | `baseline`, `graph`, `hybrid`, `leiden` | Which representation groups merchants best without looking at the target? |
+| Supervised | `supervised`, `supervised_graph` | What is the best segmentation for the decision at hand? |
+
+Two rules keep the ladder honest: every out-of-sample number comes from the same
+`train_test_split`, and `marginal_information` measures what a representation adds with the
+clustering step removed.
 
 ## Guarantees
 

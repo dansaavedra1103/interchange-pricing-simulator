@@ -63,5 +63,5 @@ def leiden_communities(
         labels=labels,
         k=int(len(assigned)),
         silhouette=float("nan"),
-        scores=pl.DataFrame(schema={"k": pl.Int64, "silhouette": pl.Float64}),
+        scores=pl.DataFrame(schema={"k": pl.Int64, "score": pl.Float64}),
     )

@@ -208,6 +208,16 @@ def test_on_us_consistent_with_independence(
     assert abs(tx["on_us"].mean() - expected) < 0.01
 
 
+def test_normalized_mutual_info_stays_in_range() -> None:
+    # Una etiqueta consigo misma comparte toda su información; dos independientes, ninguna.
+    rng = np.random.default_rng(0)
+    labels = rng.integers(0, 6, size=2_000)
+    independent = rng.integers(0, 6, size=2_000)
+    assert normalized_mutual_info(labels, labels) == pytest.approx(1.0)
+    assert normalized_mutual_info(labels, labels * 10 + 3) == pytest.approx(1.0)
+    assert normalized_mutual_info(labels, independent) < 0.05
+
+
 def test_merchant_concentration(transactions: pl.DataFrame) -> None:
     volume = transactions.group_by("merchant_id").agg(pl.col("amount_cop").sum())["amount_cop"]
     assert top_share(volume, 0.10) > 0.40
