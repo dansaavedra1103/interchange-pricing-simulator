@@ -37,3 +37,5 @@ jobs:
         run: python -m ips.tasks segment
       - name: Elasticity and link prediction
         run: python -m ips.tasks elasticity
+      - name: Scenarios
+        run: python -m ips.tasks simulate

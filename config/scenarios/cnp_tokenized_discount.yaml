@@ -1,0 +1,9 @@
+# Descuento de interchange en no presente tokenizado (spec §2.6, §1.4): la tokenización reduce el
+# fraude no presente, así que esas compras dejan de pagar el recargo CNP de la tabla (0,30 pp,
+# config/interchange_table.yaml), con piso en cero.
+name: cnp_tokenized_discount
+description: Tokenized card-not-present purchases stop paying the 0.30 pp card-not-present add-on.
+levers:
+  - kind: interchange_discount
+    where: {channels: [cnp], tokenized: true}
+    rate_cut: 0.003

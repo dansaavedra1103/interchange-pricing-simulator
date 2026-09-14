@@ -16,7 +16,7 @@ from ips.utils.config import ProjectConfig, default_config_path, load_config, re
 def raw_config() -> dict[str, Any]:
     """The YAML files merged as ``load_config`` does, as a mutable dict."""
     data = yaml.safe_load(default_config_path().read_text(encoding="utf-8"))
-    for key in ("mcc_groups", "interchange_table", "economics", "elasticity"):
+    for key in ("mcc_groups", "interchange_table", "economics", "elasticity", "simulator"):
         path = resolve_path(Path(data["includes"][key]))
         data[key] = yaml.safe_load(path.read_text(encoding="utf-8"))
     return data
@@ -104,6 +104,10 @@ CASES = {
     "negative_level_exponent": (
         _set(["elasticity", "acceptance", "level_burden_exponent"], -1.0),
         "greater than or equal to 0",
+    ),
+    "pass_through_above_one": (
+        _set(["simulator", "rewards_pass_through"], 1.5),
+        "less than or equal to 1",
     ),
 }
 

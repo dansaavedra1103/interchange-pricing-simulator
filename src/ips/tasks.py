@@ -5,6 +5,7 @@
     docs [--serve]        dbt docs generate, and optionally serve the lineage in the browser
     segment [--months N]  merchant segmentation on the graph, against the baseline (Feature 4)
     elasticity [--months N]  acceptance curve and link-prediction ladder (Feature 5)
+    simulate              every scenario in config/scenarios through the simulator (Feature 6)
     test                  pytest -q, ruff check and ruff format --check
     all [--sample]        generate, dbt build and test
 
@@ -76,6 +77,12 @@ def _elasticity(months: int | None) -> int:
     return 0
 
 
+def _simulate() -> int:
+    from ips.simulator.cli import main as simulate_main
+
+    return simulate_main(["run", "--all"])
+
+
 def _test() -> int:
     root = str(project_root())
     for command in _CHECKS:
@@ -101,6 +108,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     segment.add_argument("--months", type=int, default=None, help="Window, in months.")
     elasticity = tasks.add_parser("elasticity", help="Acceptance curve and link prediction (F5).")
     elasticity.add_argument("--months", type=int, default=None, help="Window, in months.")
+    tasks.add_parser("simulate", help="Run every scenario in config/scenarios (Feature 6).")
     tasks.add_parser("test", help="Run pytest and ruff.")
     run_all = tasks.add_parser("all", help="Generate, build and test.")
     run_all.add_argument("--sample", action="store_true", help="Use sample_sizes.")
@@ -116,6 +124,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _segment(options.months)
     if options.task == "elasticity":
         return _elasticity(options.months)
+    if options.task == "simulate":
+        return _simulate()
     if options.task == "test":
         return _test()
     for step in (lambda: _generate(options.sample), lambda: _dbt([]), _test):

@@ -23,6 +23,7 @@ import numpy as np
 import polars as pl
 
 from ips.utils.config import ProjectConfig
+from ips.utils.frames import stable_group_sums
 
 RANDOM, POPULARITY = "random", "popularity"
 GROUP_POPULARITY, SVD, GRAPHSAGE = "group_popularity", "graph_svd", "graphsage"
@@ -371,27 +372,28 @@ def redistribute_volume(
     if "gdv_lost_cop" not in lost.columns:
         raise ValueError("lost must carry a 'gdv_lost_cop' column")
     leakage = cfg.elasticity.redistribution.leakage_share
-    weights = (
-        substitutes.join(lost.select("merchant_id", "gdv_lost_cop"), on="merchant_id", how="inner")
+    candidates = substitutes.join(
+        lost.select("merchant_id", "gdv_lost_cop"),
+        on="merchant_id",
+        how="inner",
+        maintain_order="left",
+    ).with_columns(
         # Las similitudes pueden ser negativas: se desplazan a positivo antes de normalizar,
         # porque un peso negativo no significa "volumen negativo".
-        .with_columns(
-            (pl.col("similarity") - pl.col("similarity").min().over("merchant_id") + 1e-6).alias(
-                "weight"
-            )
-        )
-        .with_columns(
-            (pl.col("weight") / pl.col("weight").sum().over("merchant_id")).alias("share")
+        (pl.col("similarity") - pl.col("similarity").min().over("merchant_id") + 1e-6).alias(
+            "weight"
         )
     )
-    return (
-        weights.with_columns(
-            (pl.col("gdv_lost_cop") * (1.0 - leakage) * pl.col("share")).alias("gdv_moved_cop")
-        )
-        .group_by(pl.col("substitute_id").alias("merchant_id"))
-        .agg(pl.col("gdv_moved_cop").sum())
-        .sort("merchant_id")
+    # Las sumas van fila por fila y en el orden de los sustitutos: con group_by, dos corridas
+    # idénticas diferían en los últimos bits del volumen movido.
+    totals = stable_group_sums(candidates, "merchant_id", pl.col("weight").alias("total_weight"))
+    moved = candidates.join(totals, on="merchant_id", how="left", maintain_order="left").select(
+        pl.col("substitute_id").alias("merchant_id"),
+        (
+            pl.col("gdv_lost_cop") * (1.0 - leakage) * (pl.col("weight") / pl.col("total_weight"))
+        ).alias("gdv_moved_cop"),
     )
+    return stable_group_sums(moved, "merchant_id", "gdv_moved_cop")
 
 
 def redistribution_leakage(

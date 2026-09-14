@@ -1,0 +1,5 @@
+# Control: sin palancas. Tiene que reproducir el año base exacto; los seis escenarios estándar
+# se leen contra él.
+name: baseline
+description: Nothing changes, the control every scenario is read against.
+levers: []
