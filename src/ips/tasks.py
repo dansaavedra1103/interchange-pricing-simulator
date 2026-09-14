@@ -4,6 +4,7 @@
     dbt [args ...]        dbt build on DuckDB, or any dbt command (dbt run --select marts)
     docs [--serve]        dbt docs generate, and optionally serve the lineage in the browser
     segment [--months N]  merchant segmentation on the graph, against the baseline (Feature 4)
+    elasticity [--months N]  acceptance curve and link-prediction ladder (Feature 5)
     test                  pytest -q, ruff check and ruff format --check
     all [--sample]        generate, dbt build and test
 
@@ -60,6 +61,21 @@ def _segment(months: int | None) -> int:
     return 0
 
 
+def _elasticity(months: int | None) -> int:
+    from ips.elasticity.pipeline import run_elasticity, write_artifacts
+
+    cfg = load_config()
+    run = run_elasticity(cfg, months=months)
+    paths = write_artifacts(run, cfg)
+    print(run.curve.frame())
+    print(run.curve.groups_frame())
+    print(run.comparison)
+    for sentence in run.verdicts():
+        print(sentence)
+    print("artifacts: " + ", ".join(str(path) for path in paths.values()))
+    return 0
+
+
 def _test() -> int:
     root = str(project_root())
     for command in _CHECKS:
@@ -83,6 +99,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     docs.add_argument("--serve", action="store_true", help="Serve them in the browser.")
     segment = tasks.add_parser("segment", help="Segment merchants on the graph (Feature 4).")
     segment.add_argument("--months", type=int, default=None, help="Window, in months.")
+    elasticity = tasks.add_parser("elasticity", help="Acceptance curve and link prediction (F5).")
+    elasticity.add_argument("--months", type=int, default=None, help="Window, in months.")
     tasks.add_parser("test", help="Run pytest and ruff.")
     run_all = tasks.add_parser("all", help="Generate, build and test.")
     run_all.add_argument("--sample", action="store_true", help="Use sample_sizes.")
@@ -96,6 +114,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _docs(options.serve)
     if options.task == "segment":
         return _segment(options.months)
+    if options.task == "elasticity":
+        return _elasticity(options.months)
     if options.task == "test":
         return _test()
     for step in (lambda: _generate(options.sample), lambda: _dbt([]), _test):

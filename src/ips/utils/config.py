@@ -140,6 +140,7 @@ class Includes(_Frozen):
     mcc_groups: Path
     interchange_table: Path
     economics: Path
+    elasticity: Path
 
 
 class Fee(_Frozen):
@@ -424,6 +425,107 @@ class MccGroupsConfig(_Frozen):
 
 
 # ---------------------------------------------------------------------------
+# elasticity.yaml
+# ---------------------------------------------------------------------------
+
+
+class AcceptanceModifiers(_Frozen):
+    """Shifts on the logit of the abandonment curve, one per driver."""
+
+    cnp_share: float
+    surcharge_allowed_shift: float
+    icpp_sensitivity: Positive
+
+
+class InstantPaymentsConfig(_Frozen):
+    """Pressure from instant rails on the merchants they can substitute (spec §1.9)."""
+
+    enabled: bool
+    max_shift: float = Field(ge=0.0)
+    small_ticket_cop: Positive
+
+
+class AcceptanceConfig(_Frozen):
+    """Merchant acceptance curve: its two anchor figures, the group levels and the modifiers."""
+
+    target_annual_abandonment: Annotated[float, Field(gt=0.0, lt=1.0)]
+    target_semi_elasticity: Annotated[float, Field(gt=0.0, lt=1.0)]
+    semi_elasticity_shock: Positive
+    use_group_elasticity: bool
+    level_burden_exponent: float = Field(ge=0.0)
+    modifiers: AcceptanceModifiers
+    instant_payments: InstantPaymentsConfig
+    surcharge_allowed: bool
+    min_probability: Share
+    max_probability: Share
+
+    @model_validator(mode="after")
+    def _check_bounds(self) -> AcceptanceConfig:
+        if not self.min_probability < self.target_annual_abandonment < self.max_probability:
+            raise ValueError(
+                "acceptance.target_annual_abandonment must lie strictly between "
+                f"min_probability and max_probability: {self.target_annual_abandonment}"
+            )
+        return self
+
+
+class CardholderResponseConfig(_Frozen):
+    """Spend response to a change in the rewards rate, by spend segment."""
+
+    rewards_semi_elasticity: dict[SpendSegment, Positive]
+    max_spend_change: Annotated[float, Field(gt=0.0, lt=1.0)]
+
+
+class GnnConfig(_Frozen):
+    """Hyperparameters of the GraphSAGE link-prediction model."""
+
+    hidden_dims: int = Field(gt=1)
+    layers: int = Field(gt=0)
+    learning_rate: Positive
+    negatives_per_positive: int = Field(gt=0)
+    train_edges: int = Field(gt=0)
+    max_epochs: int = Field(gt=0)
+    patience: int = Field(gt=0)
+    min_delta: float = Field(ge=0.0)
+
+
+class LinkPredictionConfig(_Frozen):
+    """Protocol and budget of the link-prediction ladder."""
+
+    holdout_months: int = Field(gt=0)
+    top_k: int = Field(gt=0)
+    eval_cardholders: int = Field(gt=0)
+    min_new_links: int = Field(gt=0)
+    candidate_merchants: int = Field(gt=0)
+    train_cardholders: int = Field(gt=0)
+    bootstrap_samples: int = Field(gt=0)
+    confidence_level: float = Field(gt=0.0, lt=1.0)
+    gnn: GnnConfig
+
+    @model_validator(mode="after")
+    def _check_candidates(self) -> LinkPredictionConfig:
+        if self.candidate_merchants <= self.top_k:
+            raise ValueError("link_prediction.candidate_merchants must exceed top_k")
+        return self
+
+
+class RedistributionConfig(_Frozen):
+    """How a dropped merchant's volume is spread over its substitutes."""
+
+    leakage_share: Share
+    top_substitutes: int = Field(gt=0)
+
+
+class ElasticityConfig(_Frozen):
+    """Contents of ``config/elasticity.yaml``."""
+
+    acceptance: AcceptanceConfig
+    cardholder: CardholderResponseConfig
+    link_prediction: LinkPredictionConfig
+    redistribution: RedistributionConfig
+
+
+# ---------------------------------------------------------------------------
 # interchange_table.yaml
 # ---------------------------------------------------------------------------
 
@@ -513,6 +615,7 @@ class ProjectConfig(_Frozen):
     mcc_groups: MccGroupsConfig
     interchange_table: InterchangeTableConfig
     economics: EconomicsConfig
+    elasticity: ElasticityConfig
 
     @property
     def group_names(self) -> tuple[str, ...]:
@@ -602,4 +705,5 @@ def load_config(path: Path | None = None) -> ProjectConfig:
     data["mcc_groups"] = _read_yaml(resolve_path(includes.mcc_groups))
     data["interchange_table"] = _read_yaml(resolve_path(includes.interchange_table))
     data["economics"] = _read_yaml(resolve_path(includes.economics))
+    data["elasticity"] = _read_yaml(resolve_path(includes.elasticity))
     return ProjectConfig.model_validate(data)

@@ -109,6 +109,62 @@ Two rules keep the ladder honest: every out-of-sample number comes from the same
 `train_test_split`, and `marginal_information` measures what a representation adds with the
 clustering step removed.
 
+## Elasticity (Feature 5)
+
+Two halves that meet in the simulator: **how much** volume walks away when a merchant's burden
+rises, and **where** that volume goes. Like the segmentation, it reads the warehouse and writes
+artifacts, never the other way round.
+
+```mermaid
+flowchart LR
+    profile["graph.features<br/>merchant profile"] --> acceptance["merchant_acceptance<br/>logistic on relative burden"]
+    acceptance --> calibration["calibration<br/>group levels · shared slope"]
+    edges["mart_graph_edges"] --> split["link_prediction<br/>temporal split · new links"]
+    split --> scorers["scorers<br/>random · popularity · group popularity · PPMI+SVD"]
+    split --> gnn["gnn<br/>GraphSAGE (PyG)"]
+    scorers --> ladder["evaluate_rankings<br/>recall@k · MRR · coverage"]
+    gnn --> ladder
+    ladder --> substitutes["substitutes · redistribution"]
+    calibration --> artifacts[("data/artifacts/elasticity")]
+    substitutes --> artifacts
+```
+
+| Module | What it does |
+|---|---|
+| `params.py` | Re-exports the elasticity config models and derives each MCC group's sensitivity from `base_elasticity` |
+| `merchant_acceptance.py` | The abandonment curve: a logistic on relative burden, with channel, surcharge, instant-payment and pricing-model modifiers |
+| `calibration.py` | Nested bisection that solves one intercept per MCC group and a shared slope against two anchor figures, with group levels that scale with each group's median burden |
+| `cardholder_response.py` | Log-linear spend response to a change in the rewards rate, by spend segment |
+| `link_prediction.py` | Temporal split, new-link positives, the evaluation and its verdicts, merchant substitutes and volume redistribution |
+| `scorers.py` | The rungs that need no neural network: random, popularity, popularity inside the cardholder's categories, PPMI+SVD |
+| `gnn.py` | GraphSAGE over the bipartite graph with node attributes on both sides, trained single-threaded with early stopping |
+| `pipeline.py` | Orchestration; `python -m ips.tasks elasticity` writes the artifacts |
+
+Four rules keep the link-prediction ladder honest:
+
+- **Time, not chance, separates training from evaluation.** The last `holdout_months` are held
+  out, and a positive is a link that appears there for the first time. Repeat purchases are
+  excluded, because predicting them is reading the history back.
+- **Every method sees the same graph.** The cap on training cardholders applies before any
+  method runs, and every method ranks the same candidates for the same cardholders.
+- **Nothing is tuned on the held-out months.** GraphSAGE splits its training edges three ways —
+  message passing, fitting and validation — and keeps the epoch with the best validation loss,
+  stopping early when that loss stops improving or when the epoch budget runs out.
+- **A lead has to survive the noise.** Every gap comes with a paired bootstrap interval over the
+  evaluated cardholders; a gap whose interval crosses zero is reported as indistinguishable, not
+  as a win.
+
+The acceptance curve is not estimated: the data contains no abandonment events. It is a
+structural assumption whose group levels and shared slope reproduce two anchor figures — both our
+own until a published source replaces them — and its artifacts carry the anchors, each group's
+level and the moments achieved. One intercept for the whole population is not enough: the slope
+the second anchor demands then turns the curve into a threshold that leaves most groups with no
+response to price.
+
+`torch` and `torch-geometric` live in the `gnn` extra. Install torch from the CPU index first
+(`pip install torch --index-url https://download.pytorch.org/whl/cpu`): the default Linux wheel
+pulls the CUDA runtimes.
+
 ## Guarantees
 
 - **P&L conservation** (`dbt/tests/assert_pnl_conservation.sql`, `tests/test_economics.py`):
@@ -121,6 +177,11 @@ clustering step removed.
 - **No hardcoded fees in SQL:** interchange, blended MDR, network fees and pricing terms
   arrive as raw tables generated from `config/*.yaml`.
 - **Referential integrity:** `relationships` tests from the fact table to every dimension.
+- **Volume conservation** (`tests/test_elasticity.py`): when merchants drop the card, the
+  volume moved to their substitutes plus the volume that leaves the card rails equals the volume
+  lost — including merchants with no substitute, whose whole volume counts as leakage.
+- **No leakage in link prediction** (`tests/test_elasticity.py`): no held-out link appears in
+  training, and GraphSAGE gives bit-identical vectors with the same seed.
 
 ## Running it
 
@@ -129,6 +190,7 @@ python -m ips.tasks generate        # data/raw (use --sample for the small datas
 python -m ips.tasks dbt             # reference tables from config, then dbt build
 python -m ips.tasks docs --serve    # dbt docs with the lineage graph
 python -m ips.tasks segment         # merchant segmentation and the comparison (Feature 4)
+python -m ips.tasks elasticity      # acceptance curve and link-prediction ladder (Feature 5)
 python -m ips.tasks test            # pytest + ruff
 python -m ips.tasks all             # generate, dbt and test, in order
 ```

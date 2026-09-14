@@ -2,7 +2,7 @@
 # On Windows, run the same tasks directly: python -m ips.tasks <task>
 PY ?= python
 
-.PHONY: generate sample dbt docs segment test all
+.PHONY: generate sample dbt docs segment elasticity test all
 
 generate:
 	$(PY) -m ips.tasks generate
@@ -18,6 +18,9 @@ docs:
 
 segment:
 	$(PY) -m ips.tasks segment
+
+elasticity:
+	$(PY) -m ips.tasks elasticity
 
 test:
 	$(PY) -m ips.tasks test

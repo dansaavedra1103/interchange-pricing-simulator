@@ -23,7 +23,10 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
       - name: Install
-        run: python -m pip install -e ".[dev,pipeline,graph]"
+        # torch from the CPU index first: the default Linux wheel pulls the CUDA runtimes (GBs).
+        run: |
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e ".[dev,pipeline,graph,gnn]"
       - name: Lint and tests
         run: python -m ips.tasks test
       - name: Generate the sample dataset
@@ -32,3 +35,5 @@ jobs:
         run: python -m ips.tasks dbt
       - name: Segment merchants
         run: python -m ips.tasks segment
+      - name: Elasticity and link prediction
+        run: python -m ips.tasks elasticity
