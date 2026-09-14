@@ -18,10 +18,11 @@ objetivo; sin la segunda, el volumen perdido desaparece en vez de moverse a otro
 
 - **Curva de aceptación** (`merchant_acceptance.py`): logística sobre la carga relativa, con
   modificadores por canal, recargo permitido, presión del pago instantáneo y modelo de precio.
-- **Calibración por momentos** (`calibration.py`): bisección anidada que resuelve los dos
-  parámetros para reproducir dos anclas sobre la distribución real de la población. Se calibra
-  sobre la curva ya acotada, y el intervalo del intercepto se amplía solo, para no devolver un
-  extremo en silencio.
+- **Calibración por momentos** (`calibration.py`): bisección anidada que resuelve un intercepto
+  por grupo de MCC y una pendiente común para reproducir dos anclas sobre la distribución real de
+  la población. El nivel de cada grupo es proporcional a la mediana de su carga relativa. Se
+  calibra sobre la curva ya acotada, y el intervalo de cada intercepto se amplía solo, para no
+  devolver un extremo en silencio.
 - **Respuesta del titular** (`cardholder_response.py`): gasto log-lineal en la tasa de
   recompensas, acotado.
 - **Escalera de link prediction** (`link_prediction.py`, `scorers.py`, `gnn.py`): partición
@@ -35,15 +36,24 @@ objetivo; sin la segunda, el volumen perdido desaparece en vez de moverse a otro
   perdido que conserva el volumen, fuga incluida.
 - `python -m ips.tasks elasticity`, `config/elasticity.yaml`, el extra `gnn` (torch desde el
   índice CPU, también en CI), el notebook 04 y los supuestos F5-01 a F5-17.
-- **Tests** (`tests/test_elasticity.py` y tres casos nuevos en `test_config.py`): monotonicidad
-  y modificadores de la curva, calibración, respuesta del titular, protocolo sin fuga,
-  determinismo del GNN, intervalos, sustitutos por bloques y conservación del volumen.
+- **Tests** (`tests/test_elasticity.py` y cuatro casos nuevos en `test_config.py`): monotonicidad
+  y modificadores de la curva, calibración, niveles por grupo, costo de aceptación en todos los
+  grupos, respuesta del titular, protocolo sin fuga, determinismo del GNN, intervalos, sustitutos
+  por bloques y conservación del volumen.
 
 ### Resultado (datos sintéticos, semilla 20260910)
 
 La corrida completa toma ~8 minutos (7,5 de ellos en GraphSAGE) y dos corridas separadas dan
-artifacts idénticos bit a bit. La curva reproduce las dos anclas exactamente, con α = −35,06 y
-β = 34,01. Entrenan 40.000 titulares y se evalúan 2.000, sobre 5.047 enlaces nuevos.
+artifacts idénticos bit a bit. La curva reproduce las dos anclas exactamente, con una pendiente
+común β = 12,53 e interceptos que llevan a cada grupo a su nivel, de 1,1 % en educación a 6,3 %
+en mercado. Entrenan 40.000 titulares y se evalúan 2.000, sobre 5.047 enlaces nuevos.
+
+| Calibración | β | Comercios en el piso | Grupos sin respuesta* | Volumen en riesgo en los dos grupos que más concentran |
+|---|---|---|---|---|
+| Un solo nivel (primera versión) | 34,01 | 87 % | 8 de 12 | 88 % (mercado y combustible) |
+| **Nivel por grupo, proporcional a la carga** | **12,53** | **5 %** | **1 de 12** | 52 % (viajes y electrónica) |
+
+\* Menos de 0,1 pp de respuesta a un MDR 10 % más alto.
 
 | Método | recall@10 | Hit rate@10 | MRR | Cobertura |
 |---|---|---|---|---|
@@ -64,11 +74,14 @@ artifacts idénticos bit a bit. La curva reproduce las dos anclas exactamente, c
   El grafo gana su segunda audiencia, por poco.
 - **El SVD de la Feature 4 no se distingue de la popularidad por categoría, y GraphSAGE no se
   distingue del SVD.** Sin los intervalos, las dos ventajas se habrían reportado como victorias.
-- **Con estas anclas la curva es casi un umbral:** siete de los doce grupos quedan en el piso de
-  0,05 % y no responden al MDR, y mercado y combustible concentran el 88 % del volumen en riesgo.
+- **La curva ya no es un umbral.** Con un nivel por grupo, solo el 5 % de los comercios queda en
+  el piso de 0,05 % (antes, el 87 %) y todos los grupos responden a un MDR más alto: de +0,06 pp
+  en educación, cuyo MDR casi no le pesa, a +4,8 pp en mercado, ponderado por volumen.
+- **El volumen en riesgo se reparte distinto:** viajes y electrónica suman el 52 % —mucho volumen
+  con carga media o alta—, y mercado y combustible, que antes concentraban el 88 %, bajan al 19 %.
 - **Los sustitutos de GraphSAGE comparten el grupo de MCC el 99 % de las veces**, y la
-  redistribución cuadra al peso: de 16.322 millones de COP perdidos, 10.602 millones pasan a
-  sustitutos y 5.720 millones salen del riel de tarjetas.
+  redistribución cuadra al peso: de 39.779 millones de COP perdidos, 25.843 millones pasan a
+  sustitutos y 13.936 millones salen del riel de tarjetas.
 
 ### Decisiones
 
@@ -76,9 +89,12 @@ artifacts idénticos bit a bit. La curva reproduce las dos anclas exactamente, c
 - **Escalera evaluada** (decisión tuya), con partición temporal y baselines sin grafo.
 - **Traer torch** (decisión tuya): GraphSAGE en PyG, sin `NeighborLoader`, así que no hacen
   falta `pyg-lib` ni `torch-sparse`, que en Windows exigen compilación.
-- **Un solo par de parámetros para toda la población**, no uno por grupo como decía el plan:
-  calibrar por grupo le daría a todos la misma tasa de abandono. La heterogeneidad entre grupos
-  viene de `base_elasticity`.
+- **Nivel de abandono por grupo, proporcional a su carga** (decisión tuya). La primera versión
+  usaba un solo intercepto para toda la población, y la pendiente que exigía la segunda ancla
+  volvía la curva un umbral: siete de los doce grupos quedaban en el piso, sin respuesta al
+  precio. Se midieron tres variantes sobre los 6M —mismo nivel para todos, proporcional a la
+  carga y proporcional a su raíz— y las tres lo corregían; la proporcional conserva, también entre
+  sectores, la premisa de que más carga significa más abandono.
 - **Las anclas quedaron marcadas [P], no [L]** como decía el plan: no hay una fuente publicada
   verificada con esas cifras, y no se inventan citas.
 - **Las épocas las elige la validación**, nunca los meses reservados. Un primer barrido que las
@@ -87,10 +103,6 @@ artifacts idénticos bit a bit. La curva reproduce las dos anclas exactamente, c
 
 ### Pendientes
 
-- **Revisar el par de anclas antes de la Feature 7:** con 3,5 % y 1,8 pp la curva es casi un
-  umbral, y un optimizador vería siete grupos sin costo de aceptación. Las salidas son una
-  segunda ancla más suave o calibrar el nivel por grupo; es una decisión de supuestos, no de
-  código.
 - **Fuente publicada para las dos anclas de la curva** y para las semi-elasticidades de
   recompensas. El framework no cambia: solo `config/elasticity.yaml`.
 - **Presupuesto de épocas del GNN en la corrida completa:** con 400 épocas la validación seguía

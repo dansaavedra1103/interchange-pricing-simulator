@@ -1,9 +1,9 @@
 """Elasticity parameters: the models live in ``ips.utils.config``, the derived ones here.
 
-The curve's two free parameters are *not* configured — they are solved in
+The curve's intercepts and slope are *not* configured — they are solved in
 :mod:`ips.elasticity.calibration` so the curve reproduces two anchor figures. What is
-configured is everything that shapes it around those anchors: the modifiers, the bounds, and
-how much each MCC group reacts relative to the others.
+configured is everything that shapes it around those anchors: the modifiers, the bounds, how
+each MCC group's level follows its burden, and how much each group reacts to the same burden.
 """
 
 from __future__ import annotations
@@ -37,9 +37,8 @@ def group_sensitivity(cfg: ProjectConfig) -> dict[str, float]:
     """How much each MCC group reacts to the same relative burden, relative to the median group.
 
     Sale de ``base_elasticity`` en ``mcc_groups.yaml``, normalizada por su mediana: la curva
-    tiene un solo par de parámetros calibrados para toda la población, y la heterogeneidad
-    entre grupos viene de un parámetro de negocio ya documentado, no de anclas que no tenemos
-    por grupo.
+    tiene una sola pendiente para toda la población, y lo que distingue la reacción de cada
+    grupo sale de un parámetro de negocio ya documentado, no de anclas que no tenemos por grupo.
     """
     elasticities = {name: group.base_elasticity for name, group in cfg.mcc_groups.groups.items()}
     if not cfg.elasticity.acceptance.use_group_elasticity:

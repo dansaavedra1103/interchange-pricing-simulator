@@ -101,6 +101,10 @@ CASES = {
         _set(["elasticity", "cardholder", "rewards_semi_elasticity", "premium"], 1.0),
         "premium",
     ),
+    "negative_level_exponent": (
+        _set(["elasticity", "acceptance", "level_burden_exponent"], -1.0),
+        "greater than or equal to 0",
+    ),
 }
 
 

@@ -118,7 +118,7 @@ artifacts, never the other way round.
 ```mermaid
 flowchart LR
     profile["graph.features<br/>merchant profile"] --> acceptance["merchant_acceptance<br/>logistic on relative burden"]
-    acceptance --> calibration["calibration<br/>two anchor figures"]
+    acceptance --> calibration["calibration<br/>group levels · shared slope"]
     edges["mart_graph_edges"] --> split["link_prediction<br/>temporal split · new links"]
     split --> scorers["scorers<br/>random · popularity · group popularity · PPMI+SVD"]
     split --> gnn["gnn<br/>GraphSAGE (PyG)"]
@@ -133,7 +133,7 @@ flowchart LR
 |---|---|
 | `params.py` | Re-exports the elasticity config models and derives each MCC group's sensitivity from `base_elasticity` |
 | `merchant_acceptance.py` | The abandonment curve: a logistic on relative burden, with channel, surcharge, instant-payment and pricing-model modifiers |
-| `calibration.py` | Nested bisection that solves the curve's two parameters against two anchor figures, over the real burden distribution |
+| `calibration.py` | Nested bisection that solves one intercept per MCC group and a shared slope against two anchor figures, with group levels that scale with each group's median burden |
 | `cardholder_response.py` | Log-linear spend response to a change in the rewards rate, by spend segment |
 | `link_prediction.py` | Temporal split, new-link positives, the evaluation and its verdicts, merchant substitutes and volume redistribution |
 | `scorers.py` | The rungs that need no neural network: random, popularity, popularity inside the cardholder's categories, PPMI+SVD |
@@ -155,9 +155,11 @@ Four rules keep the link-prediction ladder honest:
   as a win.
 
 The acceptance curve is not estimated: the data contains no abandonment events. It is a
-structural assumption whose level and slope reproduce two anchor figures — both our own until a
-published source replaces them — and its artifact carries both the anchors and the moments
-achieved.
+structural assumption whose group levels and shared slope reproduce two anchor figures — both our
+own until a published source replaces them — and its artifacts carry the anchors, each group's
+level and the moments achieved. One intercept for the whole population is not enough: the slope
+the second anchor demands then turns the curve into a threshold that leaves most groups with no
+response to price.
 
 `torch` and `torch-geometric` live in the `gnn` extra. Install torch from the CPU index first
 (`pip install torch --index-url https://download.pytorch.org/whl/cpu`): the default Linux wheel

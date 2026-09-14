@@ -2,9 +2,9 @@
 # como [L] literatura o [P] supuesto propio.
 #
 # ADVERTENCIA METODOLÓGICA: los datos sintéticos no contienen eventos de abandono de
-# aceptación, así que la curva NO está estimada. Sus dos parámetros por grupo se resuelven
-# para que reproduzcan dos momentos tomados de literatura sobre la distribución real de carga
-# relativa de la población. Es un supuesto estructural, no un hallazgo.
+# aceptación, así que la curva NO está estimada. Un intercepto por grupo de MCC y una pendiente
+# común se resuelven para que la curva reproduzca dos anclas propias [P] sobre la distribución
+# real de carga relativa de la población. Es un supuesto estructural, no un hallazgo.
 
 acceptance:
   # Ancla 1 [P]: cuántos comercios dejan de aceptar tarjetas en un año. Supuesto propio de orden
@@ -23,6 +23,13 @@ acceptance:
   # mcc_groups.yaml, normalizado por su mediana: un grupo con elasticidad base alta reacciona
   # más a la misma carga relativa.
   use_group_elasticity: true
+
+  # [P] Nivel de abandono de cada grupo: escala con la mediana de su carga relativa elevada a
+  # este exponente, normalizado para que la población siga en `target_annual_abandonment`.
+  # Con 1, un sector con el doble de carga abandona el doble; con 0, todos los grupos quedan en
+  # el mismo nivel. Con un solo intercepto para todos, la pendiente que exige la segunda ancla
+  # volvía la curva un umbral y dejaba a la mayoría de los grupos sin respuesta al precio.
+  level_burden_exponent: 1.0
 
   # Modificadores sobre el logit. Signo y justificación en docs/assumptions.md.
   modifiers:

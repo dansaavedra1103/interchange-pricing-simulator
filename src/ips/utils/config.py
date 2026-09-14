@@ -446,12 +446,13 @@ class InstantPaymentsConfig(_Frozen):
 
 
 class AcceptanceConfig(_Frozen):
-    """Merchant acceptance curve: the two literature anchors and its modifiers."""
+    """Merchant acceptance curve: its two anchor figures, the group levels and the modifiers."""
 
     target_annual_abandonment: Annotated[float, Field(gt=0.0, lt=1.0)]
     target_semi_elasticity: Annotated[float, Field(gt=0.0, lt=1.0)]
     semi_elasticity_shock: Positive
     use_group_elasticity: bool
+    level_burden_exponent: float = Field(ge=0.0)
     modifiers: AcceptanceModifiers
     instant_payments: InstantPaymentsConfig
     surcharge_allowed: bool

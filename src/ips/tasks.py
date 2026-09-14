@@ -68,6 +68,7 @@ def _elasticity(months: int | None) -> int:
     run = run_elasticity(cfg, months=months)
     paths = write_artifacts(run, cfg)
     print(run.curve.frame())
+    print(run.curve.groups_frame())
     print(run.comparison)
     for sentence in run.verdicts():
         print(sentence)

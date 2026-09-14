@@ -11,7 +11,7 @@ from ips.data_gen.generate import GeneratedData
 from ips.data_gen.interchange_table import build_interchange_table
 from ips.economics.pnl import compute_pnl
 from ips.elasticity import link_prediction
-from ips.elasticity.calibration import calibrate_acceptance
+from ips.elasticity.calibration import calibrate_acceptance, level_targets
 from ips.elasticity.cardholder_response import (
     cardholder_response,
     segment_response,
@@ -272,13 +272,43 @@ def test_calibration_lands_on_both_anchors(curve: AcceptanceCurve) -> None:
     assert curve.achieved_abandonment == pytest.approx(curve.target_abandonment, abs=1e-6)
     assert curve.achieved_semi_elasticity == pytest.approx(curve.target_semi_elasticity, abs=1e-6)
     assert curve.beta > 0
+    for group, target in curve.level_targets.items():
+        assert curve.achieved_levels[group] == pytest.approx(target, abs=1e-6), group
 
 
 def test_calibration_is_deterministic(
     cfg: ProjectConfig, population: pl.DataFrame, curve: AcceptanceCurve
 ) -> None:
     again = calibrate_acceptance(population, cfg)
-    assert (again.alpha, again.beta) == (curve.alpha, curve.beta)
+    assert (again.intercepts, again.beta) == (curve.intercepts, curve.beta)
+
+
+def test_group_levels_follow_their_burden(cfg: ProjectConfig, population: pl.DataFrame) -> None:
+    rate = cfg.elasticity.acceptance.target_annual_abandonment
+    targets = level_targets(population, cfg)
+    groups = (
+        population.group_by(pl.col("mcc_group").cast(pl.Utf8))
+        .agg(pl.len().alias("merchants"), pl.col("relative_burden").median())
+        .sort("relative_burden")
+    )
+    ordered = [targets[group] for group in groups["mcc_group"]]
+    assert ordered == sorted(ordered)
+    # Normalizados por el peso de cada grupo, los niveles devuelven la tasa del ancla.
+    weighted = sum(
+        targets[group] * merchants
+        for group, merchants in zip(groups["mcc_group"], groups["merchants"], strict=True)
+    )
+    assert weighted / population.height == pytest.approx(rate)
+    flat = level_targets(population, _with_acceptance(cfg, level_burden_exponent=0.0))
+    assert all(level == pytest.approx(rate) for level in flat.values())
+
+
+def test_group_levels_must_fit_inside_the_bounds(
+    cfg: ProjectConfig, population: pl.DataFrame
+) -> None:
+    extreme = _with_acceptance(cfg, level_burden_exponent=12.0)
+    with pytest.raises(ValueError, match="outside the probability bounds"):
+        level_targets(population, extreme)
 
 
 def test_calibration_refuses_anchors_the_population_cannot_meet(
@@ -303,6 +333,20 @@ def test_a_higher_mdr_never_lowers_abandonment(
     response = acceptance_response(population, cfg, curve, shock)
     assert response["p_abandonment_delta"].min() >= 0.0
     assert response["p_abandonment_delta"].mean() == pytest.approx(curve.achieved_semi_elasticity)
+
+
+def test_every_group_pays_an_acceptance_cost_for_a_higher_mdr(
+    cfg: ProjectConfig, population: pl.DataFrame, curve: AcceptanceCurve
+) -> None:
+    # Con un solo nivel para toda la población, la mayoría de los grupos quedaba en el piso y un
+    # MDR más alto no les costaba aceptación: un optimizador lo habría leído como margen gratis.
+    shock = cfg.elasticity.acceptance.semi_elasticity_shock
+    response = acceptance_response(population, cfg, curve, shock).join(
+        population.select("merchant_id", pl.col("mcc_group").cast(pl.Utf8)), on="merchant_id"
+    )
+    by_group = response.group_by("mcc_group").agg(pl.col("p_abandonment_delta").mean())
+    assert by_group.height == len(curve.intercepts)
+    assert (by_group["p_abandonment_delta"] > 0).all()
 
 
 def test_an_mdr_cannot_fall_below_zero(

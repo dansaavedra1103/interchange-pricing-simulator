@@ -60,6 +60,7 @@ from ips.utils.logging import get_logger
 
 ARTIFACTS = {
     "curve": Path("elasticity") / "acceptance_curve.parquet",
+    "curve_groups": Path("elasticity") / "acceptance_curve_groups.parquet",
     "acceptance": Path("elasticity") / "merchant_acceptance.parquet",
     "response": Path("elasticity") / "acceptance_response.parquet",
     "cardholder": Path("elasticity") / "cardholder_response.parquet",
@@ -94,8 +95,9 @@ class ElasticityRun:
         """How each comparison came out, written straight from the numbers."""
         return [
             (
-                "The acceptance curve is an assumption, not an estimate: it reproduces an annual "
-                f"abandonment of {self.curve.achieved_abandonment:.3f} (anchor "
+                "The acceptance curve is an assumption, not an estimate: with group levels that "
+                "follow relative burden, it reproduces an annual abandonment of "
+                f"{self.curve.achieved_abandonment:.3f} (anchor "
                 f"{self.curve.target_abandonment:.3f}) and a semi-elasticity of "
                 f"{self.curve.achieved_semi_elasticity:.4f} (anchor "
                 f"{self.curve.target_semi_elasticity:.4f})."
@@ -225,6 +227,7 @@ def write_artifacts(run: ElasticityRun, cfg: ProjectConfig | None = None) -> dic
     for path in paths.values():
         path.parent.mkdir(parents=True, exist_ok=True)
     run.curve.frame().write_parquet(paths["curve"])
+    run.curve.groups_frame().write_parquet(paths["curve_groups"])
     run.acceptance.write_parquet(paths["acceptance"])
     run.response.write_parquet(paths["response"])
     run.cardholder.write_parquet(paths["cardholder"])

@@ -330,8 +330,8 @@ enlaces reales que ningún método vio.
 | # | Supuesto | Origen | Dónde |
 |---|---|---|---|
 | F5-01 | La probabilidad anual de que un comercio deje de aceptar la tarjeta es una logística sobre su carga relativa (MDR efectivo ÷ margen sectorial) | Driver [S §2.4, §2.6]; forma funcional [P] | `merchant_acceptance.py` |
-| F5-02 | La curva **no se estima**: los datos no tienen eventos de abandono. Sus dos parámetros se resuelven por *moment matching* sobre la distribución real de carga de la población, para reproducir dos anclas: 3,5 % de abandono anual y 1,8 pp de aceptación perdida cuando todos los MDR suben 10 % | Método [P]; **las dos cifras son [P]**, sin fuente publicada verificada | `elasticity.yaml: acceptance`, `calibration.py` |
-| F5-03 | Un solo par de parámetros para toda la población. La heterogeneidad entre grupos viene de la `base_elasticity` de `mcc_groups.yaml`, normalizada por su mediana: calibrar un par por grupo le daría a todos la misma tasa de abandono y borraría justo la diferencia que la curva debe expresar | [P] | `params.py: group_sensitivity`, `calibration.py` |
+| F5-02 | La curva **no se estima**: los datos no tienen eventos de abandono. Sus parámetros —un intercepto por grupo de MCC y una pendiente común— se resuelven por *moment matching* sobre la distribución real de carga de la población, para reproducir dos anclas: 3,5 % de abandono anual y 1,8 pp de aceptación perdida cuando todos los MDR suben 10 % | Método [P]; **las dos cifras son [P]**, sin fuente publicada verificada | `elasticity.yaml: acceptance`, `calibration.py` |
+| F5-03 | Cada grupo de MCC tiene su propio nivel de abandono, proporcional a la mediana de su carga relativa (exponente 1) y normalizado para que la población siga en el 3,5 %: un sector que entrega el doble de su margen en MDR abandona el doble. La pendiente es común, y la reacción de cada grupo a la misma carga se escala con la `base_elasticity` de `mcc_groups.yaml`, normalizada por su mediana. Con un solo intercepto para toda la población, la pendiente que exige la segunda ancla volvía la curva un umbral y dejaba a siete de los doce grupos sin respuesta al precio | [P] | `elasticity.yaml: acceptance.level_burden_exponent`, `calibration.py: level_targets`, `params.py: group_sensitivity` |
 | F5-04 | Modificadores del logit: +0,35 por unidad de participación no presente, porque ese comercio tiene más alternativas de cobro; −0,60 si se permite el recargo, apagado en el escenario base | Signo del recargo [S §1.8]; signo del no presente y magnitudes [P] | `elasticity.yaml: acceptance.modifiers` |
 | F5-05 | Un comercio en IC++ reacciona 1,25 veces más a la misma carga que uno en blended (el `mixed` queda a mitad de camino), porque ve el cambio de interchange directo | Dirección [S §1.5]; magnitud [P] | `merchant_acceptance.py: burden_term` |
 | F5-06 | Presión del pago instantáneo: hasta +0,45 en el logit, proporcional a la participación del débito por la fracción en que el ticket medio queda bajo 50.000 COP | Dirección [S §1.9]; umbral [S §2.6]; forma y magnitud [P] | `elasticity.yaml: acceptance.instant_payments` |
@@ -366,8 +366,28 @@ enlaces reales que ningún método vio.
 
 28.438 comercios y 5,8M aristas. Entrenan 40.000 titulares (1,3M aristas) y se evalúan 2.000
 sobre 5.047 enlaces nuevos entre 3.000 candidatos. La corrida completa toma ~8 minutos, 7,5 de
-ellos en GraphSAGE, y dos corridas separadas dan artifacts idénticos bit a bit. La curva queda en
-α = −35,06 y β = 34,01, y reproduce las dos anclas exactamente.
+ellos en GraphSAGE, y dos corridas separadas dan artifacts idénticos bit a bit.
+
+La curva reproduce las dos anclas exactamente, con una pendiente común β = 12,53 y un intercepto
+por grupo:
+
+| Grupo | Mediana de carga relativa | Nivel de abandono | Respuesta a un MDR 10 % más alto, ponderada por volumen |
+|---|---|---|---|
+| Educación | 0,09 | 1,06 % | +0,06 pp |
+| Digital | 0,13 | 1,50 % | +0,18 pp |
+| Servicios públicos y telecomunicaciones | 0,16 | 1,93 % | +0,47 pp |
+| Salud | 0,18 | 2,15 % | +0,46 pp |
+| Retail | 0,18 | 2,16 % | +1,11 pp |
+| Entretenimiento | 0,21 | 2,51 % | +1,52 pp |
+| Hogar y electrónica | 0,27 | 3,13 % | +1,78 pp |
+| Restaurantes | 0,27 | 3,15 % | +2,31 pp |
+| Transporte | 0,30 | 3,48 % | +3,09 pp |
+| Viajes | 0,48 | 5,69 % | +2,64 pp |
+| Combustible | 0,51 | 6,01 % | +4,68 pp |
+| Mercado | 0,54 | 6,33 % | +4,84 pp |
+
+Con un solo intercepto para toda la población, la misma calibración daba β = 34,01, dejaba al
+87 % de los comercios en el piso de 0,05 % y a ocho grupos con menos de 0,1 pp de respuesta.
 
 | Método | recall@10 | Hit rate@10 | MRR | Cobertura |
 |---|---|---|---|---|
@@ -391,20 +411,22 @@ ellos en GraphSAGE, y dos corridas separadas dan artifacts idénticos bit a bit.
   algo más de comercios nuevos, pero los pone más abajo en la lista.
 - **Los sustitutos casi no salen de la categoría:** el 99 % de los sustitutos de GraphSAGE
   comparte el grupo de MCC del comercio, contra un 2 % a 27 % si se eligieran al azar.
-- **La redistribución cuadra:** de 16.322 millones de COP de volumen esperado perdido en la
-  ventana, 10.602 millones pasan a sustitutos y 5.720 millones salen del riel de tarjetas.
+- **La redistribución cuadra:** de 39.779 millones de COP de volumen esperado perdido en la
+  ventana, 25.843 millones pasan a sustitutos y 13.936 millones salen del riel de tarjetas.
 - **GraphSAGE terminó por presupuesto y no por paciencia:** su mejor validación fue la de la
   época 392 de 400.
 
 ### Consecuencias a tener presentes
 
-- **Con estas anclas la curva es casi un umbral.** β = 34 deja a siete de los doce grupos en el
-  piso de 0,05 %, sin respuesta a un MDR 10 % más alto, y concentra el 88 % del volumen en riesgo
-  en mercado y combustible. No es un error del solver: pedir 1,8 pp de respuesta sobre una base
-  de 3,5 % equivale a que la tasa de abandono suba 51 % con un MDR 10 % más alto, y sobre esta
-  distribución de carga eso exige una curva muy empinada. Un optimizador leería esos siete grupos
-  como libres de costo de aceptación, así que el par de anclas hay que revisarlo antes de la
-  Feature 7.
+- **Los niveles por grupo son una regla, no un dato.** Que un sector con el doble de carga
+  abandone el doble es el supuesto que corrige el umbral de la primera versión, no algo que estos
+  datos muestren. El exponente vive en `config/elasticity.yaml`: en 0 todos los grupos quedan en el
+  mismo nivel, y medida sobre los 6M esa variante también corrige el umbral.
+- **Educación casi no responde** (+0,06 pp ante un MDR 10 % más alto), porque su MDR es una
+  fracción mínima de su margen. Es coherente con la premisa del modelo, pero un optimizador verá
+  poco costo de aceptación en ese grupo.
+- **El volumen en riesgo lo lideran viajes y electrónica** (52 %), por su volumen alto con carga
+  media o alta, y ya no mercado y combustible, que concentraban el 88 % con un solo intercepto.
 - **Los sustitutos refinan dentro de la categoría.** La categoría entra al GNN por los atributos
   del comercio, y para repartir volumen sus vecinos se quedan en el mismo grupo de MCC casi
   siempre.
