@@ -165,6 +165,42 @@ response to price.
 (`pip install torch --index-url https://download.pytorch.org/whl/cpu`): the default Linux wheel
 pulls the CUDA runtimes.
 
+## Scenario simulator (Feature 6)
+
+The simulator adds no new behaviour: it chains the pricing of Feature 3 with the acceptance
+curve and the substitutes of Feature 5, once, for a change in prices written as YAML.
+
+```mermaid
+flowchart LR
+    scenario["scenario.py<br/>levers from YAML"] --> price["compute_pnl<br/>interchange hook · weights"]
+    state["state.py<br/>base year · curve · substitutes"] --> price
+    price --> passthrough["pass-through<br/>blended rates · rewards"]
+    passthrough --> abandonment["abandonment<br/>delta p per merchant"]
+    abandonment --> redistribution["redistribution<br/>substitutes · leakage"]
+    passthrough --> spend["cardholder spend"]
+    redistribution --> result["result.py<br/>P&L · bridge · checks"]
+    spend --> result
+    result --> artifacts[("data/artifacts/scenarios")]
+```
+
+| Module | What it does |
+|---|---|
+| `scenario.py` | Scenario and lever models (cap, discount, substitution, migration), validated against the configuration, and what each lever adds to the pricing chain |
+| `state.py` | The base year priced once, the acceptance curve calibrated on it, the base abandonment and the substitutes |
+| `engine.py` | `Simulator.run`: price, pass-through, abandonment, redistribution, rewards, spend and the weighted P&L |
+| `result.py` | Totals, P&L by actor and segment, the revenue bridge, the one-sentence headline and both conservation checks |
+| `sensitivity.py` | One-parameter sweeps and tornado ranges over any dotted configuration path |
+| `cli.py` | `python -m ips.simulator run --scenario <file>` or `--all` |
+
+Three rules keep a scenario readable:
+
+- **The null scenario is the base year**, bit for bit: a scenario costs only the extra
+  abandonment its prices cause.
+- **Every volume effect is a weight on a transaction**, so the fee identity holds row by row
+  however much volume moves.
+- **A run refuses to report if either identity breaks:** fees against the MDR, and lost volume
+  against the volume moved plus the volume leaked.
+
 ## Guarantees
 
 - **P&L conservation** (`dbt/tests/assert_pnl_conservation.sql`, `tests/test_economics.py`):
@@ -182,6 +218,12 @@ pulls the CUDA runtimes.
   lost — including merchants with no substitute, whose whole volume counts as leakage.
 - **No leakage in link prediction** (`tests/test_elasticity.py`): no held-out link appears in
   training, and GraphSAGE gives bit-identical vectors with the same seed.
+- **Scenarios balance** (`tests/test_simulator.py`): with every weight, issuer + network +
+  acquirer equals the MDR, and the volume merchants lose equals what moves to substitutes plus
+  what leaves the card rails; the null scenario reproduces the base year exactly.
+- **Two runs match to the last bit** (`tests/test_simulator.py`, `tests/test_frames.py`): polars
+  may add a group's floats in a different order on each call, so every grouped sum that feeds a
+  result goes through `ips.utils.frames.stable_group_sums`, which adds rows in frame order.
 
 ## Running it
 
@@ -191,6 +233,7 @@ python -m ips.tasks dbt             # reference tables from config, then dbt bui
 python -m ips.tasks docs --serve    # dbt docs with the lineage graph
 python -m ips.tasks segment         # merchant segmentation and the comparison (Feature 4)
 python -m ips.tasks elasticity      # acceptance curve and link-prediction ladder (Feature 5)
+python -m ips.simulator run --all   # every scenario in config/scenarios (Feature 6)
 python -m ips.tasks test            # pytest + ruff
 python -m ips.tasks all             # generate, dbt and test, in order
 ```

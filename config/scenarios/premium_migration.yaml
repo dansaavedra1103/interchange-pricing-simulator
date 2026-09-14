@@ -1,0 +1,9 @@
+# Migración de producto (spec §2.6): el 10 % del volumen de crédito estándar pasa a premium, con
+# la tabla de interchange y los costos de emisor de premium.
+name: premium_migration
+description: 10% of standard credit volume moves to premium cards.
+levers:
+  - kind: product_migration
+    from_product: credit_standard
+    to_product: credit_premium
+    share: 0.10

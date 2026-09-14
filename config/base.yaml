@@ -35,6 +35,7 @@ includes:
   interchange_table: config/interchange_table.yaml
   economics: config/economics.yaml
   elasticity: config/elasticity.yaml
+  simulator: config/simulator.yaml
 
 products: [debit, credit_standard, credit_premium, commercial]
 

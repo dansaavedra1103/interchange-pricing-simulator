@@ -1,0 +1,9 @@
+# Gran comercio negocia tarifa preferencial (spec §2.6): el comercio de mayor volumen del año
+# base obtiene un 25 % de descuento sobre el interchange de todas sus compras. La magnitud es
+# [P] supuesto propio.
+name: strategic_merchant_deal
+description: The largest merchant negotiates 25% off its interchange.
+levers:
+  - kind: interchange_discount
+    where: {top_merchants_by_gdv: 1}
+    share: 0.25

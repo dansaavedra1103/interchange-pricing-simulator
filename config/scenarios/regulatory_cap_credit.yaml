@@ -1,0 +1,8 @@
+# Tope regulatorio al crédito de consumo (spec §2.6): 0,5 % por compra, fijo incluido. Las
+# tarjetas comerciales quedan exentas, como en la IFR europea (spec §1.7).
+name: regulatory_cap_credit
+description: Consumer credit interchange is capped at 0.5% of every purchase; commercial cards stay exempt.
+levers:
+  - kind: interchange_cap
+    products: [credit_standard, credit_premium]
+    max_rate: 0.005

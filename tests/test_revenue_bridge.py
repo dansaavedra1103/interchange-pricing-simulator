@@ -101,6 +101,27 @@ def test_segment_present_in_one_period_only() -> None:
     assert sum(bridge.effects.values()) == pytest.approx(bridge.change, rel=1e-12)
 
 
+def test_the_row_order_does_not_change_a_single_bit() -> None:
+    # Sesenta celdas con montos que no son exactos en binario: sumadas en otro orden, los últimos
+    # bits del bridge cambiarían, y dos corridas del mismo escenario dejarían de coincidir.
+    cells = range(60)
+    base = pl.DataFrame(
+        {
+            "product": [f"product_{i % 4}" for i in cells],
+            "mcc_group": [f"group_{i % 15}" for i in cells],
+            "channel": ["cp"] * len(cells),
+            "cross_border": [i % 3 == 0 for i in cells],
+            "amount_cop": [1_000.0 / (i + 3) for i in cells],
+            "network_revenue_cop": [7.0 / (i + 11) for i in cells],
+        }
+    )
+    new = base.with_columns(
+        pl.col("amount_cop") * (1.0 + pl.int_range(pl.len()) / 97),
+        pl.col("network_revenue_cop") / (1.0 + pl.int_range(pl.len()) / 89),
+    )
+    assert revenue_bridge(base, new) == revenue_bridge(base.reverse(), new.reverse())
+
+
 def test_bridge_on_generated_data(cfg: ProjectConfig, data: GeneratedData) -> None:
     priced = compute_pnl(
         data.tables["transactions"],

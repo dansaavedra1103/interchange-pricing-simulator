@@ -1,0 +1,8 @@
+# Pago instantáneo (spec §2.6): sustituye el 20 % de las compras con débito por debajo de
+# 50.000 COP. Ese volumen sale del riel de tarjetas; ninguna tarifa cambia.
+name: instant_payments_entry
+description: Instant payments take 20% of debit purchases under COP 50,000 off the card rails.
+levers:
+  - kind: volume_substitution
+    where: {products: [debit], max_amount_cop: 50000}
+    share: 0.20

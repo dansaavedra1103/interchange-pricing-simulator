@@ -141,6 +141,7 @@ class Includes(_Frozen):
     interchange_table: Path
     economics: Path
     elasticity: Path
+    simulator: Path
 
 
 class Fee(_Frozen):
@@ -526,6 +527,20 @@ class ElasticityConfig(_Frozen):
 
 
 # ---------------------------------------------------------------------------
+# simulator.yaml
+# ---------------------------------------------------------------------------
+
+
+class SimulatorConfig(_Frozen):
+    """Scenario simulator: the base year and how interchange changes pass through."""
+
+    base_months: int = Field(gt=0)
+    blended_pass_through: Share
+    rewards_pass_through: Share
+    scenarios_dir: Path
+
+
+# ---------------------------------------------------------------------------
 # interchange_table.yaml
 # ---------------------------------------------------------------------------
 
@@ -616,6 +631,7 @@ class ProjectConfig(_Frozen):
     interchange_table: InterchangeTableConfig
     economics: EconomicsConfig
     elasticity: ElasticityConfig
+    simulator: SimulatorConfig
 
     @property
     def group_names(self) -> tuple[str, ...]:
@@ -706,4 +722,5 @@ def load_config(path: Path | None = None) -> ProjectConfig:
     data["interchange_table"] = _read_yaml(resolve_path(includes.interchange_table))
     data["economics"] = _read_yaml(resolve_path(includes.economics))
     data["elasticity"] = _read_yaml(resolve_path(includes.elasticity))
+    data["simulator"] = _read_yaml(resolve_path(includes.simulator))
     return ProjectConfig.model_validate(data)

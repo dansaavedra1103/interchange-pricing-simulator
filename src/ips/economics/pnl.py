@@ -277,6 +277,7 @@ def compute_pnl(
     table: pl.DataFrame,
     cfg: ProjectConfig,
     merchants: pl.DataFrame | None = None,
+    interchange_adjustment: pl.Expr | None = None,
 ) -> PnLResult:
     """Price every transaction and compute the P&L of issuer, network, acquirer and merchant.
 
@@ -287,6 +288,9 @@ def compute_pnl(
             configuration because it is the lever that scenarios and the optimizer change.
         cfg: Project configuration: blended MDR by group and ``economics`` parameters.
         merchants: Needed when ``transactions`` has no ``pricing_model`` column.
+        interchange_adjustment: Expression for a new ``interchange_cop``, applied right after
+            the table prices each transaction and before anything that depends on it. It is how
+            a scenario caps or discounts interchange on some transactions without a new table.
 
     Raises:
         ValueError: If columns or prices are missing (a gap would silently leak P&L).
@@ -314,9 +318,13 @@ def compute_pnl(
     issuer = IssuerPnL.from_config(cfg)
     acquirer = AcquirerPnL.from_config(cfg)
 
+    interchanged = apply_interchange(frame, table)
+    if interchange_adjustment is not None:
+        # El ajuste entra antes de todo lo que depende del interchange (MDR en IC++, bruto del
+        # emisor, residuo del adquirente), así que la identidad se sigue cumpliendo fila a fila.
+        interchanged = interchanged.with_columns(interchange_adjustment.alias("interchange_cop"))
     priced = (
-        apply_interchange(frame, table)
-        .with_columns(network.components())
+        interchanged.with_columns(network.components())
         .with_columns(network.totals())
         .with_columns(merchant.mdr(), merchant.chargeback())
     )

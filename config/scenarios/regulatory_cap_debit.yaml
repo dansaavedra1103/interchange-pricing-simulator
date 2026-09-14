@@ -1,0 +1,8 @@
+# Tope regulatorio al interchange de débito (spec §2.6): ninguna compra paga más del 0,3 % de su
+# monto, componente fijo incluido.
+name: regulatory_cap_debit
+description: Debit interchange is capped at 0.3% of every purchase.
+levers:
+  - kind: interchange_cap
+    products: [debit]
+    max_rate: 0.003

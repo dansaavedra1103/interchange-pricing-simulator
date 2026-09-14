@@ -10,8 +10,8 @@ Cada supuesto se registra aquí en el momento de introducirlo, con su origen:
   ilustrativa, nunca como hallazgo empírico.
 
 Los valores exactos viven en `config/base.yaml`, `config/mcc_groups.yaml`,
-`config/interchange_table.yaml`, `config/economics.yaml` y `config/elasticity.yaml`; este
-documento explica el porqué.
+`config/interchange_table.yaml`, `config/economics.yaml`, `config/elasticity.yaml`,
+`config/simulator.yaml` y `config/scenarios/`; este documento explica el porqué.
 
 ---
 
@@ -449,6 +449,54 @@ Con un solo intercepto para toda la población, la misma calibración daba β = 
   Graphs* (NeurIPS 2017).
 - Matthias Fey y Jan Eric Lenssen, *Fast Graph Representation Learning with PyTorch Geometric*
   (ICLR 2019, workshop on Representation Learning on Graphs and Manifolds).
+
+---
+
+## Feature 6 — Simulador de escenarios (vigente)
+
+El simulador no agrega comportamiento nuevo: encadena el P&L de la Feature 3 con la curva de
+abandono y los sustitutos de la Feature 5. Lo que sí agrega son las reglas de cómo se encadenan,
+y cada una es un supuesto.
+
+### Base y cadena
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F6-01 | La base es el último año de la ventana (2025) tal como ocurrió. Un escenario muestra cómo habría sido ese año con otros precios; no es un pronóstico | [P] (diseño) | `simulator.yaml: base_months`, `state.py: base_year` |
+| F6-02 | Un escenario le cuesta a cada comercio solo el abandono adicional que causan sus precios: Δp = p(carga del escenario) − p(carga de la base). Δp es negativo cuando el comercio paga menos, y entonces retiene volumen. El escenario nulo reproduce la base exacta | [P] (diseño) | `engine.py` |
+| F6-03 | El abandono se aplica en valor esperado —cada comercio pierde Δp de su volumen—, no con sorteos. La spec describe el simulador como estocástico; se prefirió una función determinista y suave para la optimización de la Feature 7 | Desviación de [S §2.7]; [P] | `engine.py` |
+| F6-04 | La curva se calibra sobre la población del año base, con las anclas de F5-02 y F5-03. Los modificadores del logit (no presente, débito, ticket) quedan en sus valores del año base; solo se mueve la carga relativa | [P] | `state.py`, `engine.py` |
+| F6-05 | Una sola pasada, sin equilibrio: tarifa → MDR → abandono → redistribución → recompensas → gasto → P&L. El abandono de un sustituto que recibió volumen, y lo que eso desencadena, queda fuera | [P] | `engine.py` |
+| F6-06 | Todo efecto de volumen es un peso por transacción que multiplica todas sus líneas del P&L. Como cada línea es lineal por transacción, la identidad emisor + red + adquirente = MDR se cumple fila a fila con cualquier peso | [P] (diseño) | `engine.py`, `result.py` |
+
+### Traslados
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F6-07 | Los adquirentes trasladan el 50 % del cambio de interchange efectivo de cada grupo a su tarifa blended; el cambio se mide sobre las compras de comercios blended. Los comercios en IC++ ven el cambio completo porque así se cotizan | Dirección [S §1.5]; magnitud [P], barrida de 0 a 100 % en el notebook 05 | `simulator.yaml: blended_pass_through` |
+| F6-08 | Los emisores trasladan el 50 % del cambio de interchange efectivo de cada producto a su tasa de recompensas, con piso en cero y solo en los productos que ya las pagan (el débito no las crea); los tarjetahabientes responden con las semi-elasticidades de F5-08 | Dirección [S §1.7]; magnitud [P], barrida de 0 a 100 % | `simulator.yaml: rewards_pass_through`, `engine.py: passed_through` |
+| F6-09 | El volumen que un comercio pierde, o retiene, se reparte entre sus sustitutos de GraphSAGE con la fuga de F5-17; el volumen destinado a un sustituto sin compras en el escenario cuenta como fuga | [P] | `engine.py` |
+
+### Escenarios
+
+| # | Supuesto | Origen | Dónde |
+|---|---|---|---|
+| F6-10 | Tope al débito: ninguna compra paga más del 0,3 % de su monto en interchange, componente fijo incluido | Magnitud [S §2.6]; aplicación por compra [P] | `scenarios/regulatory_cap_debit.yaml` |
+| F6-11 | Tope al crédito: 0,5 % por compra para crédito estándar y premium; las tarjetas comerciales quedan exentas, como en la IFR | [S §2.6, §1.7] | `scenarios/regulatory_cap_credit.yaml` |
+| F6-12 | Pago instantáneo: el 20 % del volumen de débito en compras por debajo de 50.000 COP sale del riel de tarjetas; ninguna tarifa cambia y ese volumen no se redistribuye | Magnitud [S §2.6]; volumen puro [P] | `scenarios/instant_payments_entry.yaml` |
+| F6-13 | Comercio estratégico: el comercio de mayor volumen del año base obtiene un 25 % de descuento sobre su interchange | Palanca [S §2.6]; magnitud y elección [P] | `scenarios/strategic_merchant_deal.yaml` |
+| F6-14 | Migración a premium: el 10 % del volumen de crédito estándar pasa a premium, partiendo cada compra en dos filas con peso 0,9 y 0,1; la migración no cambia el gasto de esos tarjetahabientes | Magnitud [S §2.6]; reparto y sin respuesta de gasto [P] | `scenarios/premium_migration.yaml`, `scenario.py` |
+| F6-15 | Tokenización: el no presente tokenizado deja de pagar el recargo CNP de la tabla (0,30 pp), con piso en cero, porque la tokenización reduce el fraude que ese recargo cobra | Palanca [S §2.6, §1.4]; magnitud = recargo de la tabla [P] | `scenarios/cnp_tokenized_discount.yaml` |
+
+### Consecuencias a tener presentes
+
+- **Los escenarios no son pronósticos.** Reescriben 2025 con otros precios; la Feature 8 es la
+  que proyecta.
+- **Los traslados cargan las conclusiones de los topes.** Cuánto baja el MDR blended y cuánto
+  bajan las recompensas decide quién absorbe un tope; por eso el notebook 05 los barre de 0 a
+  100 % en vez de reportar solo el 50 %.
+- **Una pasada subestima los efectos en cadena.** Los sustitutos que reciben volumen no vuelven
+  a pasar por la curva.
 
 ---
 

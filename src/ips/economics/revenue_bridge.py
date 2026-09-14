@@ -17,6 +17,8 @@ from dataclasses import dataclass
 import numpy as np
 import polars as pl
 
+from ips.utils.frames import stable_group_sums
+
 DRIVERS = ("volume", "cross_border", "mix", "rate")
 SEGMENT_KEYS = ("product", "mcc_group", "channel")
 
@@ -49,9 +51,11 @@ class BridgeResult:
 
 
 def _cells(transactions: pl.DataFrame, keys: list[str]) -> pl.DataFrame:
-    return transactions.group_by("cross_border", *keys).agg(
-        pl.col("amount_cop").sum().cast(pl.Float64).alias("volume"),
-        pl.col("network_revenue_cop").sum().alias("revenue"),
+    return stable_group_sums(
+        transactions,
+        ["cross_border", *keys],
+        pl.col("amount_cop").alias("volume"),
+        pl.col("network_revenue_cop").alias("revenue"),
     )
 
 
@@ -64,12 +68,15 @@ def revenue_bridge(
     years of the same dataset or the baseline and a scenario.
     """
     keys = list(keys)
+    # Las celdas se ordenan antes de sumarlas: el join no garantiza un orden, y sumar las mismas
+    # celdas en otro orden cambia los últimos bits del bridge.
     cells = (
         _cells(base, keys)
         .join(
             _cells(new, keys), on=["cross_border", *keys], how="full", coalesce=True, suffix="_new"
         )
         .fill_null(0.0)
+        .sort(["cross_border", *keys])
     )
     cross_border = cells["cross_border"].to_numpy().astype(bool)
     volume = {0: cells["volume"].to_numpy(), 1: cells["volume_new"].to_numpy()}

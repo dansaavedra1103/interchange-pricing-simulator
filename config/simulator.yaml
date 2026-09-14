@@ -1,0 +1,19 @@
+# Parámetros del simulador de escenarios (Feature 6). Cada valor está documentado en
+# docs/assumptions.md como [S] spec o [P] supuesto propio.
+
+# Año base: los últimos meses de la ventana de datos. Un escenario muestra cómo habría sido ese
+# año con otros precios; la curva de abandono es anual, así que el año base la aplica completa.
+base_months: 12
+
+# [P] Parte del cambio de interchange efectivo que los adquirentes trasladan a la tarifa
+# blended de cada grupo de MCC. Los comercios en IC++ ven el cambio completo porque así se
+# cotizan (spec §1.5). No hay dato publicado: el notebook 05 barre este valor de 0 a 1.
+blended_pass_through: 0.5
+
+# [P] Parte del cambio de interchange efectivo que los emisores trasladan a la tasa de
+# recompensas de cada producto, con piso en cero (spec §1.7: tras la IFR bajaron las
+# recompensas). No hay dato publicado: el notebook 05 barre este valor de 0 a 1.
+rewards_pass_through: 0.5
+
+# Los escenarios estándar (spec §2.6), uno por archivo.
+scenarios_dir: config/scenarios

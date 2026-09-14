@@ -2,11 +2,141 @@
 
 ## Feature en curso
 
-La Feature 5 (elasticidad y link prediction) está cerrada en la rama `feat/05-elasticidad`,
-con PR contra `main`. Siguiente según el orden de CLAUDE.md: **Feature 6 — Simulador de
-escenarios**, que encadenará la tarifa, el MDR, el abandono, las recompensas, el gasto y el P&L.
+La Feature 6 (simulador de escenarios) está cerrada en la rama `feat/06-simulador`, con PR
+contra `main`. Siguiente según el orden de CLAUDE.md: **Feature 9 — App, en borrador**, que
+mostrará los escenarios; después vienen la 8 (forecasting), la 7 (optimización) y la 9 final.
 
-## Feature 5 — Elasticidad y link prediction (cerrada)
+## Feature 6 — Simulador de escenarios (cerrada)
+
+### Por qué
+
+Las features 1 a 5 dejaron cada pieza por separado: un P&L que se conserva, una curva de abandono
+calibrada y los sustitutos de GraphSAGE. Faltaba el motor que las encadena para responder lo que
+un equipo de pricing pregunta antes de tocar una tarifa: **si esto cambia, ¿quién termina
+pagándolo?** Es la función que la Feature 7 va a optimizar y lo que la Feature 9 va a mostrar.
+
+### Qué se hizo
+
+- **Escenarios en YAML** (`scenario.py`, `config/scenarios/`): cuatro palancas —tope de
+  interchange, descuento, sustitución de volumen y migración de producto—, validadas con pydantic
+  antes de tarificar nada. Seis escenarios estándar y el nulo como control.
+- **Estado base** (`state.py`): 2025 tarificado una vez, la curva de abandono calibrada sobre esa
+  misma población, el abandono de la base y los sustitutos que aprendió la Feature 5.
+- **Motor** (`engine.py`): una pasada por la cadena de la spec —tarifa, traslado a la tarifa
+  blended, abandono adicional, redistribución con signo, recompensas, gasto y P&L—, con cada
+  efecto de volumen como un peso por transacción.
+- **Resultado** (`result.py`): totales, P&L por actor y por segmento, revenue bridge contra la
+  base y una frase por escenario. La corrida se detiene si las tarifas dejan de sumar el MDR o si
+  el volumen perdido deja de cuadrar con el movido más la fuga.
+- **Sensibilidad** (`sensitivity.py`): barrido de un parámetro y tornado sobre cualquier ruta de
+  la configuración, con la curva recalibrada en cada valor.
+- **Un gancho mínimo en `compute_pnl`:** `interchange_adjustment`, aplicado justo después de la
+  tabla. Sin ajuste, el resultado es idéntico al de antes.
+- **Sumas agrupadas estables** (`utils/frames.py`): el test de determinismo encontró que dos
+  corridas del mismo escenario diferían en los últimos bits. La causa: polars 1.44 puede sumar
+  los flotantes de un grupo en otro orden en cada llamada (13 de 300 repeticiones sobre grupos de
+  pocas filas). Toda suma agrupada que alimenta un resultado pasa ahora por `stable_group_sums`,
+  que suma fila por fila en el orden del frame. Eso tocó también el revenue bridge (Feature 3) y
+  la redistribución (Feature 5), solo en el orden de las sumas.
+- `python -m ips.simulator run --scenario <archivo>` o `--all`, `python -m ips.tasks simulate`,
+  `make simulate`, un paso de CI, `config/simulator.yaml`, el notebook 05 y los supuestos F6-01 a
+  F6-15.
+- **Tests** (`tests/test_simulator.py`, `tests/test_frames.py`, un caso nuevo en
+  `test_revenue_bridge.py` y otro en `test_config.py`): escenario nulo = base, conservación de
+  tarifas y de volumen en cada escenario, seis corridas idénticas, cada palanca exacta, traslados
+  en 0 y en 1, recompensas con piso en cero y sin aparecer donde no las hay, validación de
+  escenarios y el gancho del P&L.
+
+### Resultado (datos sintéticos, semilla 20260910)
+
+Los seis escenarios y el nulo corren en 36 segundos sobre las 3,26M compras de 2025 (el año base
+se tarifica y calibra en 2), y dos corridas separadas dan sus 43 artifacts idénticos bit a bit.
+Cambio frente al año base:
+
+| Escenario | Ingreso de la red | Contribución del emisor | Contribución del adquirente | Costo del comercio | Volumen en tarjeta |
+|---|---|---|---|---|---|
+| Tope al débito en 0,3 % | +0,39 % | −41,18 % | +46,95 % | −8,24 % | +0,33 % |
+| Tope al crédito de consumo en 0,5 % | +0,79 % | −50,45 % | +105,15 % | −17,16 % | +0,38 % |
+| Pago instantáneo: 20 % del débito bajo 50.000 COP | −2,49 % | −0,48 % | −0,19 % | −0,81 % | −1,05 % |
+| El comercio más grande, con 25 % menos de interchange | −0,00 % | −1,19 % | +0,00 % | −0,63 % | +0,01 % |
+| 10 % del crédito estándar pasa a premium | −0,03 % | −0,50 % | −1,42 % | +0,24 % | −0,02 % |
+| CNP tokenizado sin el recargo de no presente | +0,07 % | −5,70 % | +9,08 % | −1,56 % | +0,05 % |
+
+- **Un tope lo pagan los emisores, y con traslados del 50 % lo reparten comercios y
+  adquirentes.** Con el tope al crédito, la contribución del emisor cae a la mitad, los comercios
+  pagan 17 % menos y la contribución de los adquirentes se duplica: la tarifa blended solo baja la
+  mitad de lo que baja el interchange.
+- **El pago instantáneo es el único escenario que le quita ingreso a la red, y le pega más que al
+  volumen** (−2,49 % contra −1,05 %). La red cobra 120 COP fijos por compra además del 0,15 % del
+  monto, y en una compra pequeña ese fijo pesa más.
+- **Un descuento a un comercio en IC++ pasa entero del emisor al comercio.** El comercio más
+  grande del año base cotiza en IC++: su descuento no mueve a la red ni al adquirente, y lo
+  financia el emisor.
+- **Pasar crédito estándar a premium le cuesta al emisor:** el interchange sube entre 0,3 y
+  0,5 pp más 50 COP por compra, pero las recompensas suben 0,8 pp. Los adquirentes absorben la
+  mitad del alza que no trasladan a sus comercios blended.
+- **La red gana con los topes por el volumen y por dónde cae.** Sus fees no dependen del
+  interchange, pero los comercios que retienen proporcionalmente más volumen son los que tienen
+  más compras cross-border: con el tope al crédito, ese volumen crece 2,7 % frente a 0,6 % en las
+  domésticas, y la red cobra 143 pb del monto en una compra cross-border contra 22 pb en una
+  doméstica. De los 12,1 millones de COP que gana, 5,9 vienen del volumen y 4,6 del peso
+  cross-border.
+- **Si la red gana con un tope depende de los adquirentes.** Con el tope al crédito, la red gana
+  0,79 % cuando los adquirentes trasladan la mitad a su tarifa blended, 1,40 % si trasladan todo y
+  pierde 0,04 % si no trasladan nada: el volumen que gana viene de comercios que ven bajar su
+  tarifa. Es el supuesto que más mueve el resultado. Le siguen la fuga (+0,26 % con 20 %, +1,31 %
+  con 50 %: más fuga significa que el volumen que los comercios retienen viene del efectivo y no
+  de otros comercios) y la segunda ancla de la curva (+0,17 % a +1,00 %). El exponente de los
+  niveles por grupo casi no pesa (+0,79 % a +0,89 %).
+- **Trasladar un tope a las recompensas amortigua al emisor, hasta que se acaban:** su
+  contribución cae 88 % sin traslado y 45 % con un traslado de 75 % o más, cuando las
+  recompensas del crédito ya están en cero. A cambio, los titulares gastan menos y la red gana
+  0,72 % en vez de 1,20 %.
+- **Una consecuencia de la definición de carga, no un hallazgo:** en el pago instantáneo el
+  abandono sube (214 millones de COP de volumen) aunque la factura de los comercios baje. Sale
+  débito, la tarjeta más barata, y sube la tasa promedio de lo que queda en tarjeta, que es lo que
+  mide la carga relativa.
+
+### Decisiones
+
+- **Año observado + cambio** (decisión tuya): un escenario reescribe 2025 con otros precios y le
+  cobra a cada comercio solo el abandono adicional que causan. El escenario nulo reproduce la base
+  exacta.
+- **Traslados del 50 %, barridos de 0 a 100 %** (decisión tuya): cuánto del cambio de interchange
+  pasa a la tarifa blended y cuánto a las recompensas. Los comercios en IC++ siempre ven el cambio
+  completo.
+- **Abandono en valor esperado** (decisión tuya): determinista y suave, como lo necesita la
+  Feature 7. Queda como desviación documentada de la spec, que describe un simulador estocástico.
+- **El tope, separado en débito y crédito**, como sugiere el ejemplo de CLI de la spec; el crédito
+  comercial queda exento, como en la IFR.
+- **Pesos por transacción, no filas nuevas ni borradas:** la identidad de tarifas se cumple fila a
+  fila con cualquier volumen.
+- **Una sola pasada, sin equilibrio**, y **recompensas por producto**, la granularidad de
+  `economics.yaml`.
+- **Desvíos del plan:** `cardholder_response.py` no cambió (el motor la llama una vez por
+  producto); el test del gancho de `compute_pnl` quedó en `test_simulator.py`; tres escenarios
+  tomaron los nombres del árbol de la spec (`instant_payments_entry`, `strategic_merchant_deal` y
+  `cnp_tokenized_discount`), que el plan había cambiado sin advertirlo; y aparecieron las sumas
+  agrupadas estables, que el plan no preveía.
+
+### Pendientes
+
+- **Efectos de segundo orden:** los sustitutos que reciben volumen no vuelven a pasar por la
+  curva, y nadie reprecia en respuesta al escenario.
+- **Una versión estocástica** si la app necesita colas o intervalos además del valor esperado.
+- **Fuente para los traslados**, hoy [P]; el notebook 05 muestra cuánto mueven las conclusiones.
+- **La carga como tasa promedio:** un escenario que saca la tarjeta más barata sube el abandono
+  aunque la factura baje. Vale la pena contrastarla con una carga sobre la factura total.
+- **`merchant_profile` sigue sumando flotantes con `group_by`:** esas sumas no llegan al
+  simulador, pero podrían variar en los últimos bits en la segmentación.
+- Siguen de la Feature 5: fuente para las anclas de la curva y las semi-elasticidades de
+  recompensas; presupuesto de épocas del GNN; la probabilidad de abandono como columna de
+  `graph/evaluate.py`; sustitutos comercio a comercio.
+- Siguen de antes: Leiden sigue siendo el más débil; contrastar la tabla de interchange con
+  Mastercard y Redeban; anclas de BanRep 2025; el `.venv` local en 3.11.9; `CLAUDE.md` fuera del
+  repo; cerrar los notebooks que tengan abierto el warehouse antes de `dbt build`.
+
+## Feature 5 — Elasticidad y link prediction (mergeada, PR #7)
 
 ### Por qué
 
